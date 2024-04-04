@@ -12,7 +12,7 @@ NEU_SPE = 108, 0
 S_SPE = 1
 A_SPE = 2
 H_SPE = 3
-R_SPE = 4
+R_SPE = 4  #####
 '''
 
 class DataLoadEEG:
