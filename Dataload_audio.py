@@ -88,7 +88,7 @@ if __name__ == "__main__":
         [tr_x_aud, tr_y_aud, te_x_aud , te_y_aud] = division_aud.get_split()
         data = [tr_x_aud, tr_y_aud, te_x_aud , te_y_aud]
 
-        mod_path = os.path.join(os.getcwd(), 'ast-finetuned-audioset-10-10-0.4593')
+        mod_path = os.path.join(os.getcwd(), 'ast-finetuned-audioset')
         Trainer = Transformer_Audio.AudioModelTrainer(data,  model_path=mod_path, sub = f"subject_{sub_idx:02d}",
                                             num_classes=5, weight_decay=1e-5, lr=0.005, batch_size = 8)
 
@@ -136,7 +136,7 @@ with open("test_acc_audio.pkl", 'rb') as f:
 
 ''' test it with the current data
 
-model = AutoModelForAudioClassification.from_pretrained("MIT/ast-finetuned-audioset-10-10-0.4593")
+model = AutoModelForAudioClassification.from_pretrained("MIT/ast-finetuned-audioset")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = model.to(device)
 
