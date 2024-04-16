@@ -1,0 +1,13 @@
+{
+  "do_normalize": true,
+  "feature_extractor_type": "ASTFeatureExtractor",
+  "feature_size": 1,
+  "max_length": 1024,
+  "mean": -4.2677393,
+  "num_mel_bins": 128,
+  "padding_side": "right",
+  "padding_value": 0.0,
+  "return_attention_mask": false,
+  "sampling_rate": 16000,
+  "std": 4.5689974
+}
