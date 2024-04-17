@@ -3,12 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset, random_split
 import torch.optim as optim
-
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.nn.parameter import Parameter
+from sklearn.metrics import accuracy_score, f1_score
+import numpy as np
 
 
 class EEGNet(nn.Module):
@@ -38,7 +34,6 @@ class EEGNet(nn.Module):
         self.classifier = nn.Sequential(
             nn.Flatten(),  
             nn.Linear(832, nb_classes),
-            nn.Softmax(dim=1)
         )
 
     def forward(self, x):
@@ -49,28 +44,44 @@ class EEGNet(nn.Module):
         return x
 
 class EEGNetTrainer:
-    def __init__(self, model, train_dataset, val_dataset, batch_size=32, epochs=100):
+    def __init__(self, model, train_dataset, val_dataset, batch_size=32, epochs=100, weight_decay=1e-4, patience=10):
         self.model = model
         self.train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         self.test_loader = DataLoader(val_dataset, batch_size=batch_size)
         self.criterion = torch.nn.CrossEntropyLoss()
-        self.optimizer = torch.optim.Adam(model.parameters())
+        self.optimizer = torch.optim.Adam(model.parameters(), weight_decay= weight_decay) 
         self.epochs = epochs
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.model.to(self.device)
-        print(self.device)
+        self.patience = patience
+        self.best_loss = np.inf
+        self.epochs_no_improve = 0
 
     def train_epoch(self):
         self.model.train()
         running_loss = 0.0
+        correct = 0
+        total = 0
+        
         for inputs, labels in self.train_loader:
+            inputs, labels = inputs.to(self.device), labels.to(self.device)
+            
             self.optimizer.zero_grad()
             outputs = self.model(inputs)
+            
             loss = self.criterion(outputs, labels)
             loss.backward()
             self.optimizer.step()
+            
             running_loss += loss.item()
-        return running_loss / len(self.train_loader)
+            
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+
+        epoch_loss = running_loss / len(self.train_loader)
+        epoch_accuracy = 100 * correct / total
+        return epoch_loss, epoch_accuracy
+
 
     def validate_epoch(self):
         self.model.eval()
@@ -91,18 +102,61 @@ class EEGNetTrainer:
 
     def train(self):
         for epoch in range(self.epochs):
-            train_loss = self.train_epoch()
-            val_loss, accuracy = self.validate_epoch()
-            print(f'Epoch {epoch+1}, Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}, Accuracy: {accuracy:.2f}%')
+            train_loss, train_accuracy = self.train_epoch()
+            val_loss, val_accuracy = self.validate_epoch()
+            print(f'Epoch {epoch+1}, Train Loss: {train_loss:.4f}, Train Accuracy: {train_accuracy:.4f}, Validation Loss: {val_loss:.4f}, Accuracy: {val_accuracy:.2f}%')
+            
+            if val_loss < self.best_loss:
+                self.best_loss = val_loss
+                self.epochs_no_improve = 0
+                torch.save(self.model.state_dict(), 'best_model.pth')
+            else:
+                self.epochs_no_improve += 1
+                if self.epochs_no_improve >= self.patience:
+                    print(f'Early stopping triggered after {epoch + 1} epochs!')
+                    break
+
 
     def predict(self):
         predictions = []
+        true_labels = []
         self.model.eval()
         with torch.no_grad():
             for inputs, labels in self.test_loader: 
                 inputs, labels = inputs.to(self.device), labels.to(self.device)
                 outputs = self.model(inputs)
                 _, predicted = torch.max(outputs.data, 1)
-                predictions.extend(predicted.tolist())
-        return predictions
-        
+                predictions.extend(predicted.cpu().tolist())
+                true_labels.extend(labels.cpu().tolist())
+        return predictions, true_labels
+    
+    def evaluate_model(self):
+        predictions, true_labels = self.predict()
+        accuracy = accuracy_score(true_labels, predictions)
+        f1 = f1_score(true_labels, predictions, average='weighted')  
+        return accuracy, f1
+
+
+if __name__ == "__main__":
+    data = torch.randn(1000, 30, 500)
+    labels = torch.randint(0, 5, (1000,))
+
+    dataset = TensorDataset(data, labels)
+
+    train_size = int(0.5 * len(dataset))
+    val_size = len(dataset) - train_size
+    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+
+    batch_size = 128
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size)
+
+    model = EEGNet(nb_classes = 5, D = 8, F2 = 64, Chans = 30, kernLength = 300, Samples = 500, dropoutRate = 0.5)
+    
+    trainer = EEGNetTrainer(model, train_dataloader, val_dataloader, batch_size=32, epochs=100)
+
+    trainer.train()
+
+    accuracy, f1 = trainer.evaluate_model()
+    print(f"Test Accuracy: {accuracy:.4f}")
+    print(f"Test F1 Score: {f1:.4f}")
