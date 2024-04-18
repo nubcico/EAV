@@ -8,7 +8,7 @@ from EAV_datasplit import *
 import Transformer_Audio
 
 class DataLoadAudio:
-    def __init__(self, subject='all', parent_directory=r'C:\Users\minho.lee\Dropbox\EAV', target_sampling_rate=16000):
+    def __init__(self, subject='all', parent_directory=r'C:\Users\minho.lee\Dropbox\Datasets\EAV', target_sampling_rate=16000):
         self.parent_directory = parent_directory
         self.original_sampling_rate = int()
         self.target_sampling_rate = target_sampling_rate
@@ -80,7 +80,7 @@ class DataLoadAudio:
 if __name__ == "__main__":
     test_acc = []
     for sub_idx in range(1,43):
-        aud_loader = DataLoadAudio(subject=sub_idx, parent_directory=r'D:\Dropbox\DATASETS\EAV')
+        aud_loader = DataLoadAudio(subject=sub_idx, parent_directory=r'C:\Users\minho.lee\Dropbox\Datasets\EAV')
         [data_aud , data_aud_y] = aud_loader.process()
         # audio_loader.label_emotion()
 
@@ -97,9 +97,15 @@ if __name__ == "__main__":
 
         test_acc.append(Trainer.outputs_test)
 
+
+
+
+''' test it with the current data
     import pickle
     with open("test_acc_audio.pkl", 'wb') as f:
         pickle.dump(test_acc, f)
+
+
 
 
 with open("test_acc_audio.pkl", 'rb') as f:
@@ -134,7 +140,7 @@ with open("test_acc_audio.pkl", 'rb') as f:
 
 
 
-''' test it with the current data
+
 
 model = AutoModelForAudioClassification.from_pretrained("MIT/ast-finetuned-audioset")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
