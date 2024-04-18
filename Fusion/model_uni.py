@@ -337,6 +337,10 @@ class Trainer_uni:
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
 
         self.device = device if device else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        if torch.cuda.device_count() > 1:
+            print(f"Using {torch.cuda.device_count()} GPUs!")
+            self.model = nn.DataParallel(self.model)
         self.model.to(self.device)
 
     def _prepare_dataloader(self, x, y, shuffle=False):
@@ -392,6 +396,7 @@ def ast_feature_extract(x):
     return ft['input_values']
 
 if __name__ == "__main__":
+    ######################### TOY DATA ######################################
     # vision
     data = [torch.randn(10, 3, 224, 224), np.random.randint(0, 5, size=(10,)),
             torch.randn(10, 3, 224, 224), np.random.randint(0, 5, size=(10,))] # batch, c, h, w
@@ -414,6 +419,40 @@ if __name__ == "__main__":
     model = ViT_Encoder(classifier=True, img_size=(30, 500), in_chans=1, patch_size=(16, 16), stride=16,
                         embed_pos=True)
     trainer = Trainer_uni(model=model, data=data, lr=1e-5, batch_size=8, num_epochs=50)
+    trainer.train()
+
+    ##################################################################################
+    ## Audio
+    model = ViT_Encoder(classifier=True, img_size=[1024, 128], in_chans=1, patch_size=(16, 16), stride=10,
+                        embed_pos=True)
+
+    aud_loader = DataLoadAudio(subject=1, parent_directory=r'C:\\Users\\minho.lee\\Dropbox\\EAV')
+    [data_aud, data_aud_y] = aud_loader.process()
+    division_aud = EAVDataSplit(data_aud, data_aud_y)
+    [tr_x_aud, tr_y_aud, te_x_aud, te_y_aud] = division_aud.get_split()
+    tr_x_aud_ft = ast_feature_extract(tr_x_aud)
+    te_x_aud_ft = ast_feature_extract(te_x_aud)
+    data = [tr_x_aud_ft.unsqueeze(1), tr_y_aud, te_x_aud_ft.unsqueeze(1), te_y_aud]
+
+    trainer = Trainer_uni(model=model, data=data, lr=1e-5, batch_size=8, num_epochs=30)
+    trainer.train()
+
+    ## EEG
+    from Dataload_eeg import DataLoadEEG
+
+    eeg_loader = DataLoadEEG(subject=1, band=[0.5, 45], fs_orig=500, fs_target=100,
+                             parent_directory=r'C:\\Users\\minho.lee\\Dropbox\\EAV')
+    data_eeg, data_eeg_y = eeg_loader.data_prepare()
+
+    division_eeg = EAVDataSplit(data_eeg, data_eeg_y)
+    [tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg] = division_eeg.get_split()
+    data = [torch.from_numpy(tr_x_eeg).float(), tr_y_eeg, torch.from_numpy(te_x_eeg).float(), te_y_eeg]
+
+    model = ViT_Encoder(classifier=True, img_size=[30, 500], in_chans=1,
+                        patch_size=(60, 1), stride=1, depth=2, num_heads=4,
+                        embed_eeg=True, embed_pos=False)
+
+    trainer = Trainer_uni(model=model, data=data, lr=1e-5, batch_size=32, num_epochs=30)
     trainer.train()
 
 

@@ -9,7 +9,6 @@ from torchvision import transforms
 import torch.nn.functional as F
 from torchvision.models import resnet50
 from PIL import Image
-import ipdb
 
 transform = transforms.Compose([
     transforms.Resize((224, 224)),

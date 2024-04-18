@@ -1,4 +1,4 @@
-from Fusion.model import ViT_Encoder, ast_feature_extract
+from Fusion.model_uni import ViT_Encoder, ast_feature_extract
 
 import torch
 import torch.nn as nn
@@ -6,9 +6,9 @@ from torch.utils.data import TensorDataset, DataLoader
 import torch.optim as optim
 from Dataload_audio import DataLoadAudio
 from Dataload_eeg import DataLoadEEG
-
 from EAV_datasplit import EAVDataSplit
 import numpy as np
+
 class MultiModalViT(nn.Module):
     def __init__(self, audio_model, eeg_model):
         super().__init__()
@@ -179,14 +179,6 @@ for i in range(42):
                                 data_eeg = data_EEG, batch_size=8, num_epochs = 30, sub = sub)
 
     trainer.train()
-
-
-
-
-
-
-
-
 
 
 '''
