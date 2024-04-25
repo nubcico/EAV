@@ -122,8 +122,8 @@ class ImageClassifierTrainer:
         print(f"Training with {'frozen' if freeze else 'unfrozen'} feature layers at lr={lr}")
 
         # Wrap the model with DataParallel
-        if torch.cuda.device_count() > 10:
-            self.model = nn.DataParallel(self.model)
+        #if torch.cuda.device_count() > 1:
+        #    self.model = nn.DataParallel(self.model)
 
         for epoch in range(epochs):
             # Training loop
