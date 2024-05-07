@@ -30,8 +30,6 @@ class LayerScale(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x.mul_(self.gamma) if self.inplace else x * self.gamma
-
-
 class DropPath(nn.Module):
     """Drop paths (Stochastic Depth) per sample  (when applied in main path of residual blocks).
     """
@@ -64,7 +62,6 @@ class DropPath(nn.Module):
 
     def extra_repr(self):
         return f'drop_prob={round(self.drop_prob,3):0.3f}'
-
 class Attention(nn.Module):
     #fused_attn: Final[bool]
     def __init__(
@@ -113,7 +110,6 @@ class Attention(nn.Module):
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
-
 class Block(nn.Module):
     def __init__(
             self,
@@ -161,7 +157,6 @@ class Block(nn.Module):
         x = x + self.drop_path2(self.ls2(self.mlp(self.norm2(x))))
         return x
 
-
 from itertools import repeat
 import collections
 from enum import Enum
@@ -185,7 +180,6 @@ class EEG_decoder(nn.Module):
     def forward(self, x):
         x = self.conv(x)
         return x
-
 class PatchEmbed(nn.Module):
     """ 2D Image to Patch Embedding
     """
@@ -242,8 +236,6 @@ class PatchEmbed(nn.Module):
 #out2 = out.unsqueeze(1)
 #emb = PatchEmbed(img_size=[60, 500], in_chans=1, patch_size = (60, 1))
 #out3 = emb(out2)
-
-
 class ViT_Encoder(nn.Module):
     def __init__(self, img_size=[224, 224], in_chans = 3, patch_size=16, stride = 16, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4.,
                  classifier : bool = False, num_classes = 5, embed_eeg = False, embed_pos = True):
@@ -270,7 +262,7 @@ class ViT_Encoder(nn.Module):
         self.feature_map = None  # this will contain the ViT feature map (including CLASS token)
 
         self.blocks = nn.ModuleList([
-            timm.models.vision_transformer.Block(dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio)
+            Block(dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio)
             for _ in range(depth)
         ])
         self.norm = nn.LayerNorm(embed_dim)
@@ -279,7 +271,6 @@ class ViT_Encoder(nn.Module):
             self.head = nn.Linear(embed_dim, num_classes, bias=True)
         else:
             self.head = []
-
     def feature(self, x): # Returns the transformer feature map for all input data, bypassing the classifier head.
         B = x.shape[0]
         if self.embed_eeg:  # Only for EEG
@@ -320,7 +311,6 @@ class ViT_Encoder(nn.Module):
         if self.head:  # classifier mode
             x = self.head(x[:, 0])
         return x
-
 class Trainer_uni:
     def __init__(self, model, data, lr=1e-4, batch_size=32, num_epochs=10, device=None):
 
@@ -388,7 +378,6 @@ class Trainer_uni:
         avg_loss = total_loss / len(self.test_dataloader)
         accuracy = total_correct / len(self.test_dataloader.dataset)
         print(f"Validation - Loss: {avg_loss:.4f}, Accuracy: {accuracy:.4f}")
-
 def ast_feature_extract(x):
     feature_extractor = ASTFeatureExtractor()
     ft = feature_extractor(x, sampling_rate=16000, padding='max_length',
@@ -408,7 +397,7 @@ if __name__ == "__main__":
     # audio
     data = [torch.randn(10, 1, 224, 224), np.random.randint(0, 5, size=(10,)),
             torch.randn(10, 1, 224, 224), np.random.randint(0, 5, size=(10,))] # batch, 1, h, w
-    model = ViT_Encoder(classifier=True, img_size=(224, 224), in_chans=1, patch_size=(16, 16), stride=16,
+    model = ViT_Encoder(classifier=True, img_size=(224, 224), in_chans=1, patch_size=(16, 16), stride=10,
                         embed_pos=True)
     trainer = Trainer_uni(model=model, data=data, lr=1e-5, batch_size=8, num_epochs=50)
     trainer.train()
@@ -426,7 +415,7 @@ if __name__ == "__main__":
     model = ViT_Encoder(classifier=True, img_size=[1024, 128], in_chans=1, patch_size=(16, 16), stride=10,
                         embed_pos=True)
 
-    aud_loader = DataLoadAudio(subject=1, parent_directory=r'C:\\Users\\minho.lee\\Dropbox\\EAV')
+    aud_loader = DataLoadAudio(subject=1, parent_directory=r'C:\\Users\\minho.lee\\Dropbox\\Datasets\\EAV')
     [data_aud, data_aud_y] = aud_loader.process()
     division_aud = EAVDataSplit(data_aud, data_aud_y)
     [tr_x_aud, tr_y_aud, te_x_aud, te_y_aud] = division_aud.get_split()
@@ -441,7 +430,7 @@ if __name__ == "__main__":
     from Dataload_eeg import DataLoadEEG
 
     eeg_loader = DataLoadEEG(subject=1, band=[0.5, 45], fs_orig=500, fs_target=100,
-                             parent_directory=r'C:\\Users\\minho.lee\\Dropbox\\EAV')
+                             parent_directory=r'C:\\Users\\minho.lee\\Dropbox\\Datasets\\EAV')
     data_eeg, data_eeg_y = eeg_loader.data_prepare()
 
     division_eeg = EAVDataSplit(data_eeg, data_eeg_y)
@@ -454,5 +443,3 @@ if __name__ == "__main__":
 
     trainer = Trainer_uni(model=model, data=data, lr=1e-5, batch_size=32, num_epochs=30)
     trainer.train()
-
-
