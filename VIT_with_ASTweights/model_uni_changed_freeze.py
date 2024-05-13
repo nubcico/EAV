@@ -9,7 +9,7 @@ from transformers import ASTFeatureExtractor
 import timm
 from timm.models import vision_transformer
 import torch.nn.functional as F
-from timm.layers import Mlp, DropPath, AttentionPoolLatent, RmsNorm, PatchDropout, SwiGLUPacked, \
+from timm.layers import Mlp, AttentionPoolLatent, RmsNorm, PatchDropout, SwiGLUPacked, \
     trunc_normal_, lecun_normal_, resample_patch_embed, resample_abs_pos_embed, use_fused_attn, \
     get_act_layer, get_norm_layer, LayerType
 
@@ -66,13 +66,14 @@ class DropPath(nn.Module):
     def extra_repr(self):
         return f'drop_prob={round(self.drop_prob,3):0.3f}'
 
+
 class Attention(nn.Module):
     #fused_attn: Final[bool]
     def __init__(
             self,
             dim: int,
             num_heads: int = 8,
-            qkv_bias: bool = False,
+            qkv_bias: bool = True,
             qk_norm: bool = False,
             attn_drop: float = 0.,
             proj_drop: float = 0.,
@@ -96,7 +97,7 @@ class Attention(nn.Module):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         q, k, v = qkv.unbind(0)
-        q, k = self.q_norm(q), self.k_norm(k)
+        #q, k = self.q_norm(q), self.k_norm(k)
 
         if self.fused_attn:
             x = F.scaled_dot_product_attention(
@@ -134,7 +135,7 @@ class Block(nn.Module):
             mlp_layer: nn.Module = Mlp,
     ) -> None:
         super().__init__()
-        self.norm1 = norm_layer(dim)
+        self.norm1 = CustomLayerNorm(dim)
         self.attn = Attention(
             dim,
             num_heads=num_heads,
@@ -158,8 +159,8 @@ class Block(nn.Module):
         self.drop_path2 = DropPath(drop_path) if drop_path > 0. else nn.Identity()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + self.drop_path1(self.ls1(self.attn(self.norm1(x))))
-        x = x + self.drop_path2(self.ls2(self.mlp(self.norm2(x))))
+        x= x + self.drop_path1(self.ls1(self.attn(self.norm1(x))))
+        x= x + self.drop_path2(self.ls2(self.mlp(self.norm2(x))))
         return x
 
 class CustomLayerNorm(nn.LayerNorm):
@@ -168,7 +169,7 @@ class CustomLayerNorm(nn.LayerNorm):
         super(CustomLayerNorm, self).__init__(*args, **kwargs)
         
         # Override the default value of epsilon (eps)
-        self.eps = 1e-5
+        self.eps = 1e-12 # it was 1e-12 in the ast model
 
 from itertools import repeat
 import collections
@@ -230,10 +231,11 @@ class PatchEmbed(nn.Module):
         self.dynamic_img_pad = dynamic_img_pad
 
         # updated_mh
-        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=stride, bias=bias)
+        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=16, stride=10)
 
         self.norm = norm_layer(embed_dim) if norm_layer else nn.Identity()
     def forward(self, x):
+        x=x.permute(0,1,3,2) # needs to be permuted according to the outputs from the ast
         x = self.proj(x)
         x = x.flatten(2).transpose(1, 2)  # NCHW -> NLC
         x = self.norm(x)
@@ -266,13 +268,12 @@ class ViT_Encoder(nn.Module):
         self.eeg_embed = EEG_decoder()
         self.patch_embed = PatchEmbed(img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim, stride = stride)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
-        self.pos_embed = nn.Parameter(torch.zeros(1, 1 + self.num_patches, embed_dim))
-        self.pos_drop = nn.Dropout(p=0.1)
-
+        self.distillation_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.pos_embed = nn.Parameter(torch.zeros(1, 1214, embed_dim)) #hardcoded dimension "self.position_embeddings = nn.Parameter(torch.zeros(1, num_patches + 2, config.hidden_size))"
+        self.pos_drop = nn.Dropout(p=0.0, inplace=False)
         self.feature_map = None  # this will contain the ViT feature map (including CLASS token)
-
         self.blocks = nn.ModuleList([
-            vision_transformer.Block(dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio)
+            Block(dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio)
             for _ in range(depth)
         ])
         self.norm = CustomLayerNorm(embed_dim)
@@ -282,42 +283,19 @@ class ViT_Encoder(nn.Module):
         else:
             self.head = []
 
-    def feature(self, x): # Returns the transformer feature map for all input data, bypassing the classifier head.
-        B = x.shape[0]
-        if self.embed_eeg:  # Only for EEG
-            x = self.eeg_embed(x)
-            x = x.unsqueeze(1)
-        x = self.patch_embed(x)
-        cls_tokens = self.cls_token.expand(B, -1, -1)  # Copy
-        x = torch.cat((cls_tokens, x), dim=1)  # Add class token
-
-        if self.embed_pos:
-            x += self.pos_embed
-        x = self.pos_drop(x)
-        for blk in self.blocks:
-            x = blk(x)
-        x = self.norm(x) # Return the feature map including the class token
-        print(x.shape)
-        return x
-
 
     def forward(self, x):
         B = x.shape[0]
         x = self.patch_embed(x)
         cls_tokens = self.cls_token.expand(B, -1, -1)  # 복제
-        x = torch.cat((cls_tokens, x), dim=1)  # 클래스 토큰 추가
-
-        if self.embed_pos:
-            x = x + self.pos_embed
+        distillation_tokens =self.distillation_token.expand(B, -1, -1) # was used in ast along with cls_token
+        x = torch.cat((cls_tokens,distillation_tokens, x), dim=1)        
+        x = x + self.pos_embed
         x = self.pos_drop(x)
-
         for blk in self.blocks:
             x = blk(x)
             
-
-        #x = self.norm(x)
         self.feature_map = x
-
         if self.head:  # classifier mode
             x = self.norm_cls(x)
             x = self.head(x[:, 0])
@@ -330,26 +308,32 @@ class Trainer_uni:
         self.initial_lr = lr
         self.batch_size = batch_size
         self.num_epochs = num_epochs
-
         self.tr_x, self.tr_y, self.te_x, self.te_y = data
         self.train_dataloader = self._prepare_dataloader(self.tr_x, self.tr_y, shuffle=True)
         self.test_dataloader = self._prepare_dataloader(self.te_x, self.te_y, shuffle=False)
         self.model=model
-
-    
+        
+        ######################################################################
+        ###   Starting the assignment of weights and biases to the model   ###
+        ######################################################################
+        
+        
         filename = "D:/weights/audio_spectrogram_transformer.embeddings.patch_embeddings.projection.weight.pth"
-        print("Loading weights of layer self.model.patch_embed.proj.weight.data...")
         weight_tensor = torch.load(filename)
         self.model.patch_embed.proj.weight.data = weight_tensor
-        print(f"Weights loaded from {filename}")
+        filename = "D:/biases/audio_spectrogram_transformer.embeddings.patch_embeddings.projection.bias.pth"
+        bias_tensor=torch.load(filename)
+        self.model.patch_embed.proj.bias.data = bias_tensor
+        
        
         for idx in range (0,12):
         
             filename = f"D:/weights/audio_spectrogram_transformer.encoder.layer.{idx}.layernorm_before.weight.pth"
             weight_tensor = torch.load(filename)
             self.model.blocks[idx].norm1.weight.data = weight_tensor
-            print(f"Weights loaded from {filename}")
-            
+            filename = f"D:/biases/audio_spectrogram_transformer.encoder.layer.{idx}.layernorm_before.bias.pth"
+            bias_tensor = torch.load(filename)
+            self.model.blocks[idx].norm1.bias.data = bias_tensor
             
             
             filename1 = f"D:/weights/audio_spectrogram_transformer.encoder.layer.{idx}.attention.attention.query.weight.pth"
@@ -360,62 +344,70 @@ class Trainer_uni:
             weight_tensor3 = torch.load(filename3)
             weight_tensor= torch.cat((weight_tensor1, weight_tensor2, weight_tensor3), dim=0)
             self.model.blocks[idx].attn.qkv.weight.data = weight_tensor
-            print(f"Weights loaded from {filename1}")
+            filename1 = f"D:/biases/audio_spectrogram_transformer.encoder.layer.{idx}.attention.attention.query.bias.pth"
+            filename2 = f"D:/biases/audio_spectrogram_transformer.encoder.layer.{idx}.attention.attention.key.bias.pth"
+            filename3 = f"D:/biases/audio_spectrogram_transformer.encoder.layer.{idx}.attention.attention.value.bias.pth"
+            bias_tensor1 = torch.load(filename1)
+            bias_tensor2 = torch.load(filename2)
+            bias_tensor3 = torch.load(filename3)
+            bias_tensor= torch.cat((bias_tensor1, bias_tensor2, bias_tensor3), dim=0)
+            self.model.blocks[idx].attn.qkv.bias.data = bias_tensor
             
             
             filename = f"D:/weights/audio_spectrogram_transformer.encoder.layer.{idx}.attention.output.dense.weight.pth"
             weight_tensor = torch.load(filename)
             self.model.blocks[idx].attn.proj.weight.data = weight_tensor
-            print(f"Weights loaded from {filename}")        
+            filename = f"D:/biases/audio_spectrogram_transformer.encoder.layer.{idx}.attention.output.dense.bias.pth"
+            bias_tensor = torch.load(filename)
+            self.model.blocks[idx].attn.proj.bias.data = bias_tensor
             
             filename = f"D:/weights/audio_spectrogram_transformer.encoder.layer.{idx}.layernorm_after.weight.pth"
             weight_tensor = torch.load(filename)
             self.model.blocks[idx].norm2.weight.data = weight_tensor
-            print(f"Weights loaded from {filename}")
+            filename = f"D:/biases/audio_spectrogram_transformer.encoder.layer.{idx}.layernorm_after.bias.pth"
+            bias_tensor = torch.load(filename)
+            self.model.blocks[idx].norm2.bias.data = bias_tensor
             
             filename = f"D:/weights/audio_spectrogram_transformer.encoder.layer.{idx}.intermediate.dense.weight.pth"
             weight_tensor = torch.load(filename)
             self.model.blocks[idx].mlp.fc1.weight.data = weight_tensor
-            print(f"Weights loaded from {filename}")
-            
+            filename = f"D:/biases/audio_spectrogram_transformer.encoder.layer.{idx}.intermediate.dense.bias.pth"
+            bias_tensor = torch.load(filename)
+            self.model.blocks[idx].mlp.fc1.bias.data = bias_tensor           
             
             filename = f"D:/weights/audio_spectrogram_transformer.encoder.layer.{idx}.output.dense.weight.pth"
             weight_tensor = torch.load(filename)
             self.model.blocks[idx].mlp.fc2.weight.data = weight_tensor
-            print(f"Weights loaded from {filename}")
-        
-        # filename = "D:/weights/audio_spectrogram_transformer.layernorm.weight.pth"
-        # weight_tensor = torch.load(filename)
-        # self.model.norm.weight.data = weight_tensor
-        # print(f"Weights loaded from {filename}")
+            filename = f"D:/biases/audio_spectrogram_transformer.encoder.layer.{idx}.output.dense.bias.pth"
+            bias_tensor = torch.load(filename)
+            self.model.blocks[idx].mlp.fc2.bias.data = bias_tensor
         
         
         filename = "D:/weights/classifier.layernorm.weight.pth"
         weight_tensor = torch.load(filename)
         self.model.norm_cls.weight.data = weight_tensor
-        print(f"Weights loaded from {filename}")
+        filename = "D:/biases/classifier.layernorm.bias.pth"
+        bias_tensor = torch.load(filename)
+        self.model.norm_cls.bias.data = bias_tensor
         
         filename = "D:/weights/classifier.dense.weight.pth"
         weight_tensor = torch.load(filename)
         self.model.head.weight.data = weight_tensor
-        print(f"Weights loaded from {filename}")
+        filename = "D:/biases/classifier.dense.bias.pth"
+        bias_tensor = torch.load(filename)
+        self.model.head.bias.data = bias_tensor
         
+        ######################################################################
+        ###   Finishing the assignment of weights and biases to the model  ###
+        ######################################################################       
         
-        torch.save(self.model.state_dict(), 'model_with_weights.pth')
-        
-        # model_path = "model_with_weights.pth.pth"
+        # torch.save(self.model.state_dict(), 'model_with_weights.pth') #we can just use the state dict after the first assignment
+        # model_path = "model_with_weights.pth"
         # self.model.load_state_dict(torch.load(model_path))
         
-        
         self.model.head = torch.nn.Linear(self.model.head.in_features, 5)
-        
-        print(self.model)
-            
-
-        #print(self.model)
         self.criterion = nn.CrossEntropyLoss()
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.initial_lr)
-
         self.device = device if device else torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
 
@@ -423,7 +415,6 @@ class Trainer_uni:
         dataset = TensorDataset(torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.long))
         dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=shuffle)
         return dataloader
-
     
     def train(self, epochs=20, lr=None, freeze=True):
         lr = lr if lr is not None else self.initial_lr
@@ -433,16 +424,11 @@ class Trainer_uni:
         
         best_accuracy = 0.0
         best_epoch = 0
-        best_model_state_dict = None
-        train_losses = []
-        train_accuracies = []
-        test_losses = []
-        test_accuracies = []
         
         for param in self.model.parameters():
             param.requires_grad = not freeze
         for param in self.model.head.parameters():
-            param.requires_grad = True
+            param.requires_grad = True      
         
         for epoch in range(epochs):
             self.model.train()  # Set model to training mode
@@ -453,16 +439,11 @@ class Trainer_uni:
             for batch_idx, (data, targets) in enumerate(self.train_dataloader):
                 data = data.to(self.device)
                 targets = targets.to(self.device)
-    
-                # Forward pass
                 scores = self.model(data)
                 loss = self.criterion(scores, targets)
-    
-                # Backward pass and optimization
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
-    
                 total_loss += loss.item()
     
                 # Calculate training accuracy
@@ -472,40 +453,23 @@ class Trainer_uni:
     
                 del data
                 del targets
-    
             # Calculate training accuracy for the epoch
             epoch_loss = total_loss / len(self.train_dataloader)
             epoch_accuracy = 100.0 * correct / total
-            train_losses.append(epoch_loss)
-            train_accuracies.append(epoch_accuracy)
             
             print(f"Epoch [{epoch+1}/{self.num_epochs}], Training Loss: {epoch_loss:.4f}, Training Accuracy: {epoch_accuracy:.2f}%")
             
             # Validate the model after each epoch
             if self.test_dataloader:
                 test_loss, test_accuracy = self.validate()
-                test_losses.append(test_loss)
-                test_accuracies.append(test_accuracy)
                 if test_accuracy > best_accuracy:
                     best_accuracy = test_accuracy
-                    best_epoch = epoch + 1
-                    best_model_state_dict = self.model.state_dict()
-                    torch.save(best_model_state_dict, 'best_model(1).pth')
-                    
-        plt.plot(range(1, epochs+1), train_accuracies, label='Training Accuracy')
-        if self.test_dataloader:
-            plt.plot(range(1, epochs+1), test_accuracies, label='Testing Accuracy')
-        plt.xlabel('Epoch')
-        plt.ylabel('Accuracy (%)')
-        plt.title('Training and Testing Accuracy Over Epochs')
-        plt.legend()
-        plt.show()
-            
+                    best_epoch = epoch + 1         
                     
         
-        if best_model_state_dict is not None:
-            torch.save(best_model_state_dict, 'best_model.pth')
-            print(f"Best model saved at epoch {best_epoch} with testing accuracy: {best_accuracy:.2f}%")
+        if best_accuracy is not None:
+            self.outputs_test=best_accuracy
+            print(f"Best model is at epoch {best_epoch} with testing accuracy: {best_accuracy:.2f}%")
 
 
     def validate(self):
@@ -546,34 +510,50 @@ def ast_feature_extract(x):
 
 # %%
 ############################################### audio
-model = ViT_Encoder(classifier = True, img_size=[1024, 128], in_chans=1, patch_size = (16, 16), stride = 10, embed_pos = False)
-
-# aud_loader = DataLoadAudio(subject=2, parent_directory=r'D:\EAV')
-# [data_aud , data_aud_y] = aud_loader.process()
-# division_aud = EAVDataSplit(data_aud, data_aud_y)
-# [tr_x_aud, tr_y_aud, te_x_aud , te_y_aud] = division_aud.get_split()
+model = ViT_Encoder(classifier = True, img_size=[1024, 128], in_chans=1, patch_size = (16, 16), stride = 10, embed_pos = True)
 
 
-direct=r"C:\Users\user.DESKTOP-HI4HHBR\Downloads\Feature_vision"
-file_name = "subject_02_aud.pkl"
-file_ = os.path.join(direct, file_name)
 import pickle
-with open(file_, 'rb') as f:
-    vis_list2 = pickle.load(f)
-    
-tr_x_vis, tr_y_vis, te_x_vis, te_y_vis = vis_list2
 
-tr_x_aud_ft = ast_feature_extract(tr_x_vis)
-te_x_aud_ft = ast_feature_extract(te_x_vis)
-tr_y_aud=tr_y_vis
-te_y_aud=te_y_vis
 
-data = [tr_x_aud_ft.unsqueeze(1), tr_y_aud, te_x_aud_ft.unsqueeze(1), te_y_aud]
+test_acc_all = list()
+for idx in range(2, 3):
+    test_acc = []
+    torch.cuda.empty_cache()
+    direct=r"C:\Users\user.DESKTOP-HI4HHBR\Downloads\Feature_vision"
+    file_name = f"subject_{idx:02d}_aud.pkl"
+    file_ = os.path.join(direct, file_name)
 
-Trainer = Trainer_uni(model=model, data=data, lr=1e-5, batch_size=8, num_epochs=10)
+    with open(file_, 'rb') as f:
+        vis_list2 = pickle.load(f)
+        
+    tr_x_vis, tr_y_vis, te_x_vis, te_y_vis = vis_list2
 
-Trainer.train(epochs=100, lr=5e-4, freeze=True)
-Trainer.train(epochs=100, lr=5e-6, freeze=False)
+    tr_x_aud_ft = ast_feature_extract(tr_x_vis)
+    te_x_aud_ft = ast_feature_extract(te_x_vis)
+    tr_y_aud=tr_y_vis
+    te_y_aud=te_y_vis
+
+    data = [tr_x_aud_ft.unsqueeze(1), tr_y_aud, te_x_aud_ft.unsqueeze(1), te_y_aud]
+
+    Trainer = Trainer_uni(model=model, data=data, lr=1e-5, batch_size=8, num_epochs=10)
+
+    Trainer.train(epochs=10, lr=5e-4, freeze=True)
+    Trainer.train(epochs=20, lr=5e-6, freeze=False)
+
+    test_acc.append(Trainer.outputs_test)
+    accuracy=Trainer.outputs_test
+    f = open("accuracy_aud_transf_vit.txt", "a")
+    f.write("\n Subject ")
+    f.write(str(idx))
+    f.write("\n")
+    f.write(f"The accuracy of the {idx}-subject is ")
+    f.write(str(accuracy))
+    print(f"The accuracy of the {idx}-subject is ")
+    print(accuracy)
+    f.close()
+
+test_acc_all = np.reshape(np.array(test_acc), (42, 1))
 
 
 # #%%
