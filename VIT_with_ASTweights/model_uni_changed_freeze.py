@@ -702,5 +702,3 @@ test_acc_all = np.reshape(np.array(test_acc), (42, 1))
 # plt.xlabel('Component 1')
 # plt.ylabel('Component 2')
 # plt.show()
-
-
