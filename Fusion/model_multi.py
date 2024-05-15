@@ -1,4 +1,4 @@
-from Fusion.model_uni import ViT_Encoder, ast_feature_extract
+from Fusion.Transformer import ViT_Encoder, ast_feature_extract
 
 import torch
 import torch.nn as nn

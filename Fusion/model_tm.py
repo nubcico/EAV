@@ -175,7 +175,6 @@ class EEG_decoder(nn.Module):
     def forward(self, x):
         x = self.conv(x)
         return x
-
 class PatchEmbed(nn.Module):
     """ 2D Image to Patch Embedding
     """
@@ -220,7 +219,6 @@ class PatchEmbed(nn.Module):
         x = x.flatten(2).transpose(1, 2)  # NCHW -> NLC
         x = self.norm(x)
         return x
-
 class ViT_Encoder(nn.Module):
     def __init__(self, img_size=[224, 224], in_chans = 3, patch_size=16, stride = 16, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4.,
                  classifier : bool = False, num_classes = 5, embed_eeg = False, embed_pos = True):
@@ -367,9 +365,7 @@ def ast_feature_extract(x):
                            return_tensors='pt')
     return ft['input_values']
 
-
 model = ViT_Encoder(classifier = True, img_size=[1024, 128], in_chans=1, patch_size = (16, 16), stride = 10, embed_pos = True)
-
 aud_loader = DataLoadAudio(subject=1, parent_directory=r'C:\\Users\\minho.lee\\Dropbox\\EAV')
 [data_aud , data_aud_y] = aud_loader.process()
 division_aud = EAVDataSplit(data_aud, data_aud_y)

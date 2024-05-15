@@ -3,16 +3,9 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data import TensorDataset, DataLoader
-
 from transformers import ASTFeatureExtractor
-
-import timm
-
 import torch.nn.functional as F
-from timm.layers import Mlp, DropPath, AttentionPoolLatent, RmsNorm, PatchDropout, SwiGLUPacked, \
-    trunc_normal_, lecun_normal_, resample_patch_embed, resample_abs_pos_embed, use_fused_attn, \
-    get_act_layer, get_norm_layer, LayerType
-
+from timm.layers import Mlp, DropPath, use_fused_attn
 from Dataload_audio import DataLoadAudio
 from EAV_datasplit import EAVDataSplit
 import numpy as np
@@ -68,7 +61,7 @@ class Attention(nn.Module):
             self,
             dim: int,
             num_heads: int = 8,
-            qkv_bias: bool = False,
+            qkv_bias: bool = True,  # should be true
             qk_norm: bool = False,
             attn_drop: float = 0.,
             proj_drop: float = 0.,
@@ -116,7 +109,7 @@ class Block(nn.Module):
             dim: int,
             num_heads: int,
             mlp_ratio: float = 4.,
-            qkv_bias: bool = False,
+            qkv_bias: bool = True,
             qk_norm: bool = False,
             proj_drop: float = 0.,
             attn_drop: float = 0.,
@@ -156,11 +149,6 @@ class Block(nn.Module):
         x = x + self.drop_path1(self.ls1(self.attn(self.norm1(x))))
         x = x + self.drop_path2(self.ls2(self.mlp(self.norm2(x))))
         return x
-
-from itertools import repeat
-import collections
-from enum import Enum
-
 class EEG_decoder(nn.Module):
     def __init__(self, eeg_channel = 30, dropout=0.1):
         super().__init__()
@@ -224,18 +212,6 @@ class PatchEmbed(nn.Module):
         x = x.flatten(2).transpose(1, 2)  # NCHW -> NLC
         x = self.norm(x)
         return x
-
-#emb = PatchEmbed(img_size=[1024, 128], in_chans=1)
-#out = emb(torch.randn(1, 1, 1024, 128))
-
-#emb = PatchEmbed(img_size=[30, 500], in_chans=1, patch_size = (1, 100))
-#out = emb(torch.randn(200, 1, 30, 500))
-
-#aaa = EEG_decoder()
-#out = aaa(torch.randn(1, 30, 500))
-#out2 = out.unsqueeze(1)
-#emb = PatchEmbed(img_size=[60, 500], in_chans=1, patch_size = (60, 1))
-#out3 = emb(out2)
 class ViT_Encoder(nn.Module):
     def __init__(self, img_size=[224, 224], in_chans = 3, patch_size=16, stride = 16, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4.,
                  classifier : bool = False, num_classes = 5, embed_eeg = False, embed_pos = True):
@@ -251,9 +227,9 @@ class ViT_Encoder(nn.Module):
         num_patches_width = (img_size[1] - patch_size[1]) // stride + 1
         self.total_patches = num_patches_height * num_patches_width
 
-
         self.stride = stride
-        self.eeg_embed = EEG_decoder()
+        if embed_eeg:
+            self.eeg_embed = EEG_decoder()
         self.patch_embed = PatchEmbed(img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim, stride = stride)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.pos_embed = nn.Parameter(torch.zeros(1, 1 + self.total_patches, embed_dim))
@@ -287,7 +263,6 @@ class ViT_Encoder(nn.Module):
             x = blk(x)
         x = self.norm(x) # Return the feature map including the class token
         return x
-
 
     def forward(self, x):
         B = x.shape[0]

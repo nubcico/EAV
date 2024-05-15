@@ -31,8 +31,6 @@ class LayerScale(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x.mul_(self.gamma) if self.inplace else x * self.gamma
-
-
 class DropPath(nn.Module):
     """Drop paths (Stochastic Depth) per sample  (when applied in main path of residual blocks).
     """
@@ -65,8 +63,6 @@ class DropPath(nn.Module):
 
     def extra_repr(self):
         return f'drop_prob={round(self.drop_prob,3):0.3f}'
-
-
 class Attention(nn.Module):
     #fused_attn: Final[bool]
     def __init__(
@@ -115,7 +111,6 @@ class Attention(nn.Module):
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
-
 class Block(nn.Module):
     def __init__(
             self,
@@ -162,7 +157,6 @@ class Block(nn.Module):
         x= x + self.drop_path1(self.ls1(self.attn(self.norm1(x))))
         x= x + self.drop_path2(self.ls2(self.mlp(self.norm2(x))))
         return x
-
 class CustomLayerNorm(nn.LayerNorm):
     def __init__(self, *args, **kwargs):
         # Call the constructor of nn.LayerNorm with the same arguments
@@ -170,11 +164,9 @@ class CustomLayerNorm(nn.LayerNorm):
         
         # Override the default value of epsilon (eps)
         self.eps = 1e-12 # it was 1e-12 in the ast model
-
 from itertools import repeat
 import collections
 from enum import Enum
-
 class EEG_decoder(nn.Module):
     def __init__(self, eeg_channel = 30, dropout=0.1):
         super().__init__()
@@ -194,7 +186,6 @@ class EEG_decoder(nn.Module):
     def forward(self, x):
         x = self.conv(x)
         return x
-
 class PatchEmbed(nn.Module):
     """ 2D Image to Patch Embedding
     """
@@ -240,9 +231,6 @@ class PatchEmbed(nn.Module):
         x = x.flatten(2).transpose(1, 2)  # NCHW -> NLC
         x = self.norm(x)
         return x
-
-
-
 class ViT_Encoder(nn.Module):
     def __init__(self, img_size=[224, 224], in_chans = 3, patch_size=16, stride = 16, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4.,
                  classifier : bool = False, num_classes = 527, embed_eeg = False, embed_pos = True):
@@ -289,8 +277,6 @@ class ViT_Encoder(nn.Module):
             x = self.norm_cls(x)
             x = self.head(x[:, 0])
         return x
-
-
 class Trainer_uni:
     def __init__(self, model, data, lr=1e-4, batch_size=32, num_epochs=10, device=None):
 

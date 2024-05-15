@@ -1,8 +1,8 @@
 from Dataload_audio import DataLoadAudio
 from EAV_datasplit import EAVDataSplit
-from Fusion.model_uni import ViT_Encoder
-from Fusion.model_uni import ast_feature_extract
-from Fusion.model_uni import Trainer_uni
+from Fusion.Transformer import ViT_Encoder
+from Fusion.Transformer import ast_feature_extract
+from Fusion.Transformer import Trainer_uni
 import torch
 import numpy as np
 from transformers import ASTFeatureExtractor
