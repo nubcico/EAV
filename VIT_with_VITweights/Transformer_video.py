@@ -218,7 +218,7 @@ class PatchEmbed(nn.Module):
         return x
 
 
-class ViT_Encoder(nn.Module):
+class ViT_Encoder_Video(nn.Module):
     def __init__(self, img_size=[224, 224], in_chans = 3, patch_size=16, stride = 16, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4.,
                  classifier : bool = False, num_classes = 5, embed_eeg = False, embed_pos = True):
         super().__init__()
@@ -254,20 +254,32 @@ class ViT_Encoder(nn.Module):
         else:
             self.head = []
     def feature(self, x): # Returns the transformer feature map for all input data, bypassing the classifier head.
-        B = x.shape[0] #batch size
-        if self.embed_eeg:  # Only for EEG
+        B = x.shape[0]
+        if self.embed_eeg:  # only for the EEG
             x = self.eeg_embed(x)
             x = x.unsqueeze(1)
         x = self.patch_embed(x)
-        cls_tokens = self.cls_token.expand(B, -1, -1)  # Copy
+        
+        # Load cls_tokens and pos_embed from saved files
+        cls_token_tensor = torch.load('cls_tokens.pth')
+        pos_embed_tensor = torch.load('position_embeddings.pth')
+        
+        # Ensure tensors are on the same device as the input tensor
+        device = x.device
+        cls_token_tensor = cls_token_tensor.to(device)
+        pos_embed_tensor = pos_embed_tensor.to(device)
+        
+        cls_tokens = cls_token_tensor.expand(B, -1, -1)
         x = torch.cat((cls_tokens, x), dim=1)  # Add class token
-
+        
         if self.embed_pos:
-            x += self.pos_embed
+            x = x + pos_embed_tensor
         x = self.pos_drop(x)
+
         for blk in self.blocks:
             x = blk(x)
-        x = self.norm(x) # Return the feature map including the class token
+
+        x = self.norm(x)
         return x
 
     def forward(self, x):
@@ -319,8 +331,8 @@ class Trainer_uni:
 
         self.model = model
         #print(model)
-        model_path = "model_with_weights_video.pth"
-        self.model.load_state_dict(torch.load(model_path))
+        #model_path = "model_with_weights_video.pth"
+        #self.model.load_state_dict(torch.load(model_path))
         self.model.head = torch.nn.Linear(self.model.head.in_features, 5)
         # for name, param in self.model.named_parameters():
         #     print(f"Parameter name: {name}, Parameter shape: {param.shape}")
@@ -416,12 +428,12 @@ class Trainer_uni:
                 outputs_test, test_accuracy = self.validate(epoch, epochs, freeze)
                 if test_accuracy > best_accuracy:
                     best_accuracy = test_accuracy
-                    best_outputs_test=outputs_test
                     best_epoch = epoch + 1
-                del(outputs_test)
+        self.outputs_test = outputs_test
         if best_accuracy is not None:
-            self.outputs_test = best_outputs_test
             print(f"Best model is at epoch {best_epoch} with testing accuracy: {best_accuracy:.2f}%")
+        
+        
 
     def validate(self, epoch, epochs, freeze):
         outputs_batch = []
@@ -450,6 +462,7 @@ class Trainer_uni:
                 del data
                 del targets
             
+            
         
         #print(f"Outputs batch shape before concatenation: {[x.shape for x in outputs_batch]}")
         outputs_test = np.concatenate(outputs_batch, axis=0)
@@ -459,7 +472,13 @@ class Trainer_uni:
         avg_loss = total_loss / len(self.test_dataloader)
         accuracy = 100 * total_correct / len(self.test_dataloader.dataset)
         print(f"Validation - Loss: {avg_loss:.4f}, Accuracy: {accuracy:.4f}")
+        
+        if epoch == epochs-1 and not freeze: # we saved test prediction only at last epoch, and finetuning
+                self.feature_map = self.model.feature_map
+        
         return outputs_test, accuracy
+    
+        
 
 
 

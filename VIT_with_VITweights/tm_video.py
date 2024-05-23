@@ -1,5 +1,5 @@
 from transformers import AutoImageProcessor, AutoModelForImageClassification
-from Transformer_video import ViT_Encoder, Trainer_uni
+from Transformer_video import ViT_Encoder_Video, Trainer_uni
 import torch
 from Dataload_audio import DataLoadAudio
 from EAV_datasplit import EAVDataSplit
@@ -18,7 +18,7 @@ for layer_name, param in model_pre.state_dict().items():
         model_bias.append((layer_name, param))
         print(layer_name)
 
-model = ViT_Encoder(classifier=True, img_size=(224, 224), in_chans=3, patch_size=(16, 16), stride=16, embed_pos=True)
+model = ViT_Encoder_Video(classifier=True, img_size=(224, 224), in_chans=3, patch_size=(16, 16), stride=16, embed_pos=True)
 
 weight_layer_name = "vit.embeddings.patch_embeddings.projection.weight"
 weight_tensor = next((tensor for name, tensor in model_weights if name == weight_layer_name), None)
@@ -109,7 +109,6 @@ if __name__ == '__main__':
     import os
     from sklearn.metrics import f1_score
     test_acc = []
-    model = ViT_Encoder(classifier=True, img_size=(224, 224), in_chans=3, patch_size=(16, 16), stride=16, embed_pos=True)
     for idx in range(4, 5):
         torch.cuda.reset_max_memory_allocated()
         torch.cuda.reset_max_memory_cached()
@@ -127,7 +126,9 @@ if __name__ == '__main__':
 
         trainer.train(epochs=10, lr=5e-4, freeze=True)
         trainer.train(epochs=5, lr=5e-6, freeze=False)
-
+        
+        feature_map=trainer.feature_map
+        
         test_acc_all = list()
         test_f1_all = list()
         
@@ -153,6 +154,26 @@ if __name__ == '__main__':
         f.write(f"The f1-score of the {idx}-subject is ")
         f.write(str(f1))
         f.close()   
+        
+        
+        import numpy as np
+        from sklearn.manifold import TSNE
+        import matplotlib.pyplot as plt
+        
+        # Flatten the feature map if necessary, e.g., from (B, N, D) to (B*N, D)
+        flattened_feature_map = feature_map.view(-1, feature_map.size(-1)).cpu().detach().numpy()
+        
+        # Apply t-SNE
+        tsne = TSNE(n_components=2, random_state=42)
+        tsne_results = tsne.fit_transform(flattened_feature_map)
+
+# Plot the t-SNE results
+plt.figure(figsize=(8, 6))
+plt.scatter(tsne_results[:, 0], tsne_results[:, 1], s=1, alpha=0.7)
+plt.title('t-SNE of Feature Map')
+plt.xlabel('t-SNE Dimension 1')
+plt.ylabel('t-SNE Dimension 2')
+plt.show()
     
 # import os
 # import pickle   
