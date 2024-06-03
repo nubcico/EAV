@@ -9,26 +9,107 @@ from EAV_datasplit import EAVDataSplit
 import numpy as np
 from transformers import AutoImageProcessor
 from torch.cuda.amp import autocast
+from timm.layers import Mlp, DropPath, use_fused_attn
+import torch.nn.functional as F
 
+class Attention(nn.Module):
+    #fused_attn: Final[bool]
+    def __init__(
+            self,
+            dim: int,
+            num_heads: int = 8,
+            qkv_bias: bool = True,  # should be true
+            qk_norm: bool = False,
+            attn_drop: float = 0.,
+            proj_drop: float = 0.,
+            norm_layer: nn.Module = nn.LayerNorm,
+    ) -> None:
+        super().__init__()
+        assert dim % num_heads == 0, 'dim should be divisible by num_heads'
+        self.num_heads = num_heads
+        self.head_dim = dim // num_heads
+        self.scale = self.head_dim ** -0.5
+        self.fused_attn = use_fused_attn()
+
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, N, C = x.shape
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv.unbind(0)
+        #q, k = self.q_norm(q), self.k_norm(k)
+
+        if self.fused_attn:
+            x = F.scaled_dot_product_attention(
+                q, k, v,
+                dropout_p=self.attn_drop.p if self.training else 0.,
+            )
+        else:
+            q = q * self.scale
+            attn = q @ k.transpose(-2, -1)
+            attn = attn.softmax(dim=-1)
+            attn = self.attn_drop(attn)
+            x = attn @ v
+
+        x = x.transpose(1, 2).reshape(B, N, C)
+        # x = self.proj(x)
+        x = self.proj_drop(x)
+        return x
+    
 class MultiModalViT(nn.Module):
     def __init__(self, audio_model, video_model):
         super().__init__()
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+        dim=768
+        num_heads=12
+        qkv_bias=True
+        attn_drop=0.0
+        proj_drop=0.0
         self.audio_model = audio_model.to(device)
         self.video_model = video_model.to(device)
-
+        self.attn = Attention(
+            dim,
+            num_heads=num_heads,
+            qkv_bias=qkv_bias,
+            attn_drop=attn_drop,
+            proj_drop=proj_drop,
+        )
+        mlp_layer: nn.Module = Mlp
+        act_layer: nn.Module = nn.GELU
+        norm_layer: nn.Module = nn.LayerNorm
+        self.mlp = mlp_layer(
+            in_features=dim,
+            hidden_features=int(dim * 4),
+            act_layer=act_layer,
+            drop=proj_drop,
+        )
+        self.norm2 = norm_layer(dim)
         self.classifier = nn.Linear(audio_model.embed_dim + video_model.embed_dim, audio_model.num_classes)  # Assume same output features from both models
 
     def forward(self, audio_x, video_x):
-        audio_features = self.audio_model.feature(audio_x)[:, 0]  # Extract only class token features
+        audio_features = self.audio_model.feature(audio_x)  # Extract only class token features
+        #print(audio_features.shape)
         batch_size, num_samples, c, h, w = video_x.size()
         video_x = video_x.view(batch_size * num_samples, c, h, w)  # Reshape to (batch_size * 25, 3, 224, 224)
-        video_features = self.video_model.feature(video_x)[:, 0]  # Extract class token features for all samples
-        video_features = video_features.view(batch_size, num_samples, -1)  # Reshape to (batch_size, 25, embed_dim)
+        video_features = self.video_model.feature(video_x)  # Extract class token features for all samples
+        #print(video_features)
+        video_features = video_features.view(batch_size, num_samples, -1, 768)  # Reshape to (batch_size, 25, embed_dim)
+        #print(video_features)
         video_features = video_features.mean(dim=1)  # Average the 25 class tokens
-
-        combined_features = torch.cat((audio_features, video_features), dim=1)
+       #print(video_features.shape)
+        
+        
+        x = torch.cat((audio_features, video_features), dim=1)
+        x = x + self.attn(x)
+        x = x + self.mlp(self.norm2(x))
+        #print(combined_features.shape)
+        audio_features=x[:,0]
+        video_features=x[:,1213]
+        combined_features=torch.cat((audio_features, video_features), dim=1)
         output = self.classifier(combined_features)
         return output
 
@@ -136,10 +217,9 @@ class TrainerMultiModal:
             training_accuracy = total_correct / total_samples
             print(f"{self.sub}_Epoch {epoch + 1}, Training Accuracy: {training_accuracy:.4f}")
             accuracy = self.validate()
-            print(f"Epoch {epoch + 1}, Validation Accuracy: {accuracy:.2f}%")
-            if(epoch==epochs-1):
-                with open('aud_video_results_new_25.txt', 'a') as f:
-                    f.write(f"Subject {self.sub} Epoch {epoch + 1} Testing Accuracy: {accuracy}\n")
+            print(f"Epoch {epoch + 1}, Validation Accuracy: {accuracy:.2f}")
+            with open('aud_video_results_attention.txt', 'a') as f:
+                f.write(f"Subject {self.sub} Epoch {epoch + 1} Testing Accuracy: {accuracy}\n")
 
     def validate(self):
         self.multimodal_model.eval()
@@ -181,7 +261,7 @@ class TrainerMultiModal:
 import os
 import pickle 
 str=[2,4,6,17,31]
-#str=[4]
+str=[4]
 for i in range(1,43):
     sub=i
     model_aud = ViT_Encoder_Audio(classifier=True, img_size=[1024, 128], in_chans=1, patch_size=(16, 16), stride=10, embed_pos=True)
@@ -213,5 +293,5 @@ for i in range(1,43):
 
     trainer = TrainerMultiModal(multimodal_model=combined_model, data_audio=data_AUD, data_video=data_video, batch_size=8, num_epochs=30, sub=sub)
 
-    trainer.train(freeze=True, epochs=9, lr=5e-4)#best epoch 9th
+    trainer.train(freeze=True, epochs=20, lr=5e-4)
     #trainer.train(freeze=False, epochs=10, lr=5e-6)
