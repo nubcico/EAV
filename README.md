@@ -1,81 +1,43 @@
-[//]: # (<!-- PROJECT LOGO -->)
-
-[//]: # (<br />)
-
-[//]: # (<div align="center">)
-
-[//]: # (  <a href="https://github.com/othneildrew/Best-README-Template">)
-
-[//]: # (    <img src="images/logo.png" alt="Logo" width="80" height="80">)
-
-[//]: # (  </a>)
-
-[//]: # ()
-[//]: # (  <h3 align="center">Best-README-Template</h3>)
-
-[//]: # ()
-[//]: # (  <p align="center">)
-
-[//]: # (    An awesome README template to jumpstart your projects!)
-
-[//]: # (    <br />)
-
-[//]: # (    <a href="https://github.com/othneildrew/Best-README-Template"><strong>Explore the docs »</strong></a>)
-
-[//]: # (    <br />)
-
-[//]: # (    <br />)
-
-[//]: # (    <a href="https://github.com/othneildrew/Best-README-Template">View Demo</a>)
-
-[//]: # (    ·)
-
-[//]: # (    <a href="https://github.com/othneildrew/Best-README-Template/issues/new?labels=bug&template=bug-report---.md">Report Bug</a>)
-
-[//]: # (    ·)
-
-[//]: # (    <a href="https://github.com/othneildrew/Best-README-Template/issues/new?labels=enhancement&template=feature-request---.md">Request Feature</a>)
-
-[//]: # (  </p>)
-
-[//]: # (</div>)
-
-
-
-<!-- TABLE OF CONTENTS -->
-<details>
-  <summary>Table of Contents</summary>
-  <ol>
-    <li>
-      <a href="#about-the-project">About The Project</a>
-    </li>
-    <li>
-      <a href="#getting-started">Getting Started</a>
-      <ul>
-        <li><a href="#prerequisites">Prerequisites</a></li>
-        <li><a href="#installation">Installation</a></li>
-      </ul>
-    </li>
-    <li><a href="#usage">Usage</a></li>
-    <li><a href="#roadmap">Roadmap</a></li>
-    <li><a href="#license">License</a></li>
-    <li><a href="#contact">Contact</a></li>
-  </ol>
-</details>
-
-
-
 <!-- ABOUT THE PROJECT -->
-## EAV: EEG-Audio-Video Dataset for Emotion Recognition in Conversational Contexts 
-
-[![EAV logo][product-screenshot]](https://example.com)
+# EAV: EEG-Audio-Video Dataset for Emotion Recognition in Conversational Contexts 
 
 We introduce a multimodal emotion dataset comprising data from 30-channel electroencephalography
-(EEG), audio, and video recordings from 40 participants. Each participant engaged in a cue-based conversation scenario,
-eliciting five distinct emotions: neutral, anger, happiness, sadness, and calmness. Throughout the experiment, each participant
-contributed 200 interactions, which encompassed both listening and speaking. This resulted in a cumulative total of 8,000
-interactions across all participants.
+(EEG), audio, and video recordings from 42 participants. Each participant engaged in a cue-based conversation scenario,
+eliciting five distinct emotions: neutral(N), anger(A), happiness(H), sadness(S), and calmness(C). 
 
+Participants engage in paired listen/speak sets with recordings of an experienced actor, seated in front of a 27-inch monitor displaying visual stimuli. 
+The experiment is designed as a pseudo-random class-iteration sequence: [A, A, C, C, S, S, H, A, C, H, H, S, S, A, A, C, C, H, H, S]. 
+Throughout the experiment, each participant contributed 200 interactions. This resulted in a cumulative total of 8,400 interactions across all participants.
+Please refer to the paper [TODO: add link] for more details.
+## Domains
+
+### Video
+Each 'Video' subfolder contains 200 video clips, each is 20 sec in lengths, 30 fps and performs either ’listening’ or ’speaking’ tasks. 
+The Video data adopts the structure - [5 emotion classes × 2 tasks × 20 iterations]
+
+File format: .mp4
+
+Baseline performance of DeepFace: Mean ACC = 52.8 %, Mean F1-score = 51.5 %
+
+### Audio
+Each 'Audio' subfolder contains 100 audio files, each is 20 sec in lengths and performs only ’speaking’ task. 
+The audio data adopts the structure - [5 classes × 1 task ('speaking') × 20 conversations]
+
+File format: .wav
+
+Baseline performance of SCNN: Mean ACC = 36.7 %, Mean F1-score = 34.1 %
+### EEG
+Each 'EEG' subfolder contains 2 EEG data files. Each instance is 20 sec in lengths and an initial sampling rate of 500 Hz. Due to continuous recording, 
+the processed EEG data adopts the structure  - [200 instances × 10,000 time points(20s × 500 Hz) × 30 channels].
+The labels for this data use a one-hot encoding format, structured as 200 trials by 10 classes (5 emotions multiplied by 2
+tasks).
+
+File format: .mat
+
+Baseline performance of EEGnet: Mean ACC = 36.7 %, Mean F1-score = 34.1 %
+
+_Note that the label information can be applied across all modalities since all recordings, regardless of the modality, were
+conducted synchronously. This ensures uniform annotations throughout the dataset._
 
 <!-- GETTING STARTED -->
 ## Getting Started
@@ -130,7 +92,11 @@ To train the Transfromer for Speech emotion recognition run:
 
 Minho Lee - minho.lee@nu.edu.kz
 
+Adai Shomanov - adai.shomanov@nu.edu.kz
+
 Zhuldyz Kabidenova - zhuldyz.kabidenova@nu.edu.kz
+
+Adnan Yazici - adnan.yazici@nu.edu.kz
 
 
 <!-- LICENSE -->
