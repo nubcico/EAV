@@ -1,0 +1,16 @@
+facenet_pytorch
+keras
+librosa
+matplotlib
+numpy
+opencv-python
+pandas
+pillow
+pickle
+scipy
+seaborn
+tensorflow
+torch
+torchaudio
+torchvision
+transformers
