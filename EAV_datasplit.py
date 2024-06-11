@@ -10,8 +10,6 @@ class EAVDataSplit:
         self.x = np.array(x)
         self.y = np.array(y)
         self.batch_size = batch_size
-
-
     def _split_features_labels(self):
         # Splitting features and labels based on class, select each 80 samples per class in order
         features = []

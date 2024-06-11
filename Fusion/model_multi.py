@@ -1,4 +1,4 @@
-from Fusion.Transformer import ViT_Encoder, ast_feature_extract
+from Fusion.VIT_audio.Transformer_audio import ViT_Encoder, ast_feature_extract
 
 import torch
 import torch.nn as nn
@@ -7,7 +7,7 @@ import torch.optim as optim
 from Dataload_audio import DataLoadAudio
 from Dataload_eeg import DataLoadEEG
 from EAV_datasplit import EAVDataSplit
-import numpy as np
+
 
 class MultiModalViT(nn.Module):
     def __init__(self, audio_model, eeg_model):
@@ -27,7 +27,6 @@ class MultiModalViT(nn.Module):
         combined_features = torch.cat((audio_features, eeg_features), dim=1)
         output = self.classifier(combined_features)
         return output
-
 
 class TrainerMultiModal:
     def __init__(self, multimodal_model, data_audio, data_eeg, lr=1e-4, batch_size=32, num_epochs=10, sub = ''):
@@ -183,7 +182,11 @@ for i in range(42):
 
 '''
 ############################################### audio
-model = ViT_Encoder(classifier = True, img_size=[1024, 128], in_chans=1, patch_size = (16, 16), stride = 10, embed_pos = False)
+model = ViT_Encoder(classifier = True, img_size=[1024, 128], in_chans=1, patch_size = (16, 16), stride = 16, embed_pos = False)
+
+
+model_pre = AutoModelForImageClassification.from_pretrained(model_path)
+
 
 aud_loader = DataLoadAudio(subject=2, parent_directory=r'C:\\Users\\minho.lee\\Dropbox\\EAV')
 [data_aud , data_aud_y] = aud_loader.process()

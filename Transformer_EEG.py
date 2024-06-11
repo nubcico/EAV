@@ -126,6 +126,27 @@ class EEGModelTrainer:
         dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=shuffle)
         return dataloader
 
+    def evaluate(self):
+        self.model.eval()
+        correct = 0
+        total = 0
+        predictions = []
+        accuracies = []
+
+        with torch.no_grad():
+            for inputs, labels in self.test_dataloader:
+                inputs = inputs.to(self.device)
+                labels = labels.to(self.device)
+                outputs = self.model(inputs)
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+                predictions.extend(predicted.cpu().numpy())
+                accuracies.extend((predicted == labels).cpu().numpy())
+        accuracy = correct / total
+        print(f'Test Accuracy: {accuracy:.2f}')
+        return accuracy, predictions
+
     def train(self, epochs=25, lr=None, freeze=False):
         lr = lr if lr is not None else self.initial_lr
         if lr is not None:

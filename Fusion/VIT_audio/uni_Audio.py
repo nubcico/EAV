@@ -1,10 +1,10 @@
 from transformers import AutoModelForAudioClassification
-from Fusion.Transformer import ViT_Encoder, ast_feature_extract, Trainer_uni
+from Fusion.VIT_audio.Transformer_audio import ViT_Encoder, ast_feature_extract, Trainer_uni
 import torch
 from Dataload_audio import DataLoadAudio
 from EAV_datasplit import EAVDataSplit
 
-mod_path = r"C:\Users\minho.lee\Dropbox\Projects\EAV\ast-finetuned-audioset"
+mod_path = r"/ast-finetuned-audioset"
 model_pre = AutoModelForAudioClassification.from_pretrained(mod_path)
 
 model_weights = []
@@ -77,12 +77,15 @@ for idx in range(12):
     model.blocks[idx].mlp.fc2.bias.data = bias_tensor
 
 for name, param in model.named_parameters():
-    if 'norm.weight' in name or 'norm.bias' in name:
+    param.requires_grad = False
+
+for name, param in model.named_parameters():
+    if 'norm.weight' == name or 'norm.bias' == name or 'head.weight' == name or 'head.bias' == name:
         param.requires_grad = True
 for name, param in model.named_parameters():
     print(f"{name} trainable: {param.requires_grad}")
 
-aud_loader = DataLoadAudio(subject=3, parent_directory=r'C:\\Users\\minho.lee\\Dropbox\\Datasets\\EAV')
+aud_loader = DataLoadAudio(subject=2, parent_directory=r'C:\\Users\\minho.lee\\Dropbox\\Datasets\\EAV')
 [data_aud, data_aud_y] = aud_loader.process()
 division_aud = EAVDataSplit(data_aud, data_aud_y)
 [tr_x_aud, tr_y_aud, te_x_aud, te_y_aud] = division_aud.get_split()
@@ -90,7 +93,7 @@ tr_x_aud_ft = ast_feature_extract(tr_x_aud)
 te_x_aud_ft = ast_feature_extract(te_x_aud)
 data = [tr_x_aud_ft.unsqueeze(1), tr_y_aud, te_x_aud_ft.unsqueeze(1), te_y_aud]
 
-trainer = Trainer_uni(model=model, data=data, lr=1e-5, batch_size=8, num_epochs=20)
+trainer = Trainer_uni(model=model, data=data, lr=1e-4, batch_size=8, num_epochs=20)
 trainer.train()
 
 for name, param in model.named_parameters():
@@ -98,5 +101,3 @@ for name, param in model.named_parameters():
 
 trainer = Trainer_uni(model=model, data=data, lr=1e-6, batch_size=8, num_epochs=20)
 trainer.train()
-
-

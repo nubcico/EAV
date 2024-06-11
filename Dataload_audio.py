@@ -98,6 +98,28 @@ if __name__ == "__main__":
         test_acc.append(Trainer.outputs_test)
 
 
+''' This code is to store the RAW audio input to the folder: (400, 80000), 16000Hz
+if __name__ == "__main__":
+    test_acc = []
+    for sub in range(1,43):
+        print(sub)
+        file_path = "C:/Users/minho.lee/Dropbox/Datasets/EAV/Input_images/Audio/"
+        file_name = f"subject_{sub:02d}_aud.pkl"
+        file_ = os.path.join(file_path, file_name)
+
+        aud_loader = DataLoadAudio(subject=sub, parent_directory=r'C:\Users\minho.lee\Dropbox\Datasets\EAV')
+        [data_aud , data_aud_y] = aud_loader.process()
+        # audio_loader.label_emotion()
+
+        division_aud = EAVDataSplit(data_aud, data_aud_y)
+        [tr_x_aud, tr_y_aud, te_x_aud , te_y_aud] = division_aud.get_split(h_idx=56)
+
+        Aud_list = [tr_x_aud, tr_y_aud, te_x_aud, te_y_aud]
+        import pickle
+        with open(file_, 'wb') as f:
+            pickle.dump(Aud_list, f)
+'''
+
 
 
 ''' test it with the current data

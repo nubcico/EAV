@@ -17,7 +17,7 @@ R_SPE = 4  #####
 
 class DataLoadEEG:
     def __init__(self, subject='all', band=[0.3, 50], fs_orig=500, fs_target=100,
-                 parent_directory=r'C:\Users\minho.lee\Dropbox\EAV'):
+                 parent_directory=r'C:\Users\minho.lee\Dropbox\Datasets\EAV'):
         self.subject = subject
         self.band = band
         self.parent_directory = parent_directory
@@ -132,9 +132,11 @@ class DataLoadEEG:
         self.data_div()
         return self.seg_f_div, self.label_div
 
+
+''' Direct evaluation
 if __name__ == "__main__":
     eeg_loader = DataLoadEEG(subject=1, band=[0.5, 45], fs_orig=500, fs_target=100,
-                             parent_directory=r'C:\Users\minho.lee\Dropbox\EAV')
+                             parent_directory='C://Users//minho.lee//Dropbox//Datasets//EAV')
     data_eeg, data_eeg_y = eeg_loader.data_prepare()
 
     division_eeg = EAVDataSplit(data_eeg, data_eeg_y)
@@ -143,3 +145,45 @@ if __name__ == "__main__":
 
     trainer = Transformer_EEG.EEGModelTrainer(data, lr=0.001, batch_size = 64)
     trainer.train(epochs=200, lr=None, freeze=False)
+'''
+from Transformer_EEG import EEGClassificationModel
+accuracy_all = list()
+prediction_all = list()
+if __name__ == "__main__": # from pickle data
+    import pickle
+    for sub in range(1, 43):
+        file_path = "C:/Users/minho.lee/Dropbox/Datasets/EAV/Input_images/EEG/"
+        file_name = f"subject_{sub:02d}_eeg.pkl"
+        file_ = os.path.join(file_path, file_name)
+
+        with open(file_, 'rb') as f:
+            eeg_list2 = pickle.load(f)
+        tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg = eeg_list2
+        data = [tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg]
+
+        model = EEGClassificationModel(eeg_channel=30)
+        trainer = Transformer_EEG.EEGModelTrainer(data, model = model, lr=0.001, batch_size = 64)
+        trainer.train(epochs=100, lr=None, freeze=False)
+
+        [accuracy, predictions] = trainer.evaluate()
+        accuracy_all.append(accuracy)
+        prediction_all.append(predictions)
+
+''' create eeg pickle files
+if __name__ == "__main__":
+    for sub in range(1,43):
+        print(sub)
+        file_path = "C:/Users/minho.lee/Dropbox/Datasets/EAV/Input_images/EEG/"
+        file_name = f"subject_{sub:02d}_eeg.pkl"
+        file_ = os.path.join(file_path, file_name)
+        eeg_loader = DataLoadEEG(subject=sub, band=[0.5, 45], fs_orig=500, fs_target=100,
+                                 parent_directory='C://Users//minho.lee//Dropbox//Datasets//EAV')
+        data_eeg, data_eeg_y = eeg_loader.data_prepare()
+
+        division_eeg = EAVDataSplit(data_eeg, data_eeg_y)
+        [tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg] = division_eeg.get_split()
+        EEG_list = [tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg]
+        import pickle
+        with open(file_, 'wb') as f:
+            pickle.dump(EEG_list, f)
+'''

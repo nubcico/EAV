@@ -1,11 +1,11 @@
 from Dataload_audio import DataLoadAudio
 from EAV_datasplit import EAVDataSplit
-from Fusion.Transformer import ViT_Encoder
-from Fusion.Transformer import ast_feature_extract
-from Fusion.Transformer import Trainer_uni
+from Fusion.VIT_audio.Transformer_audio import ViT_Encoder
+from Fusion.VIT_audio.Transformer_audio import ast_feature_extract
+from Fusion.VIT_audio.Transformer_audio import Trainer_uni
 import torch
 import numpy as np
-from transformers import ASTFeatureExtractor
+
 sub_idx = [2, 4, 5, 9, 15, 17, 18, 20, 33, 39]
 
 train_tensors = []

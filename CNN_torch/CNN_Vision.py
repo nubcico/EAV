@@ -164,11 +164,6 @@ class ImageClassifierTrainer:
             avg_accuracy = total_accuracy / len(self.test_dataloader)
             print(f"Epoch {epoch + 1}, Train Accuracy: {avg_accuracy_train * 100:.2f}%, Test Accuracy: {avg_accuracy * 100:.2f}%")
             
-        
-
-
-
-
 
 # Example usage
 from sklearn.metrics import f1_score
@@ -182,7 +177,8 @@ if __name__ == '__main__':
     for idx in range(1, 2):
         test_acc = []
         torch.cuda.empty_cache()
-        direct=r"C:\Users\user.DESKTOP-HI4HHBR\Downloads\Feature_vision"
+
+        direct=r"C:\Users\minho.lee\Dropbox\Projects\EAV\Feature_vision"
         file_name = f"subject_{idx:02d}_vis.pkl"
         file_ = os.path.join(direct, file_name)
 

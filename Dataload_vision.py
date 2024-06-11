@@ -103,20 +103,21 @@ if __name__ == '__main__':
 
     for sub in range(1, 20):
         print(sub)
-        file_path = "D:/Dropbox/pythonProject/Feature_vision/"
+        file_path = "C:/Users/minho.lee/Dropbox/Datasets/EAV/Input_images/Vision/"
         file_name = f"subject_{sub:02d}_vis.pkl"
         file_ = os.path.join(file_path, file_name)
-        if not os.path.exists(file_):
-            vis_loader = DataLoadVision(subject=sub, parent_directory='D:/Dropbox/DATASETS/EAV', face_detection=True)
-            [data_vis, data_vis_y] = vis_loader.process()
+        #if not os.path.exists(file_):
 
-            eav_loader = EAV_datasplit.EAVDataSplit(data_vis, data_vis_y)
-            [tr_x_vis, tr_y_vis, te_x_vis, te_y_vis] = eav_loader.get_split()  # output(list): train, trlabel, test, telabel
+        vis_loader = DataLoadVision(subject=sub, parent_directory=r'C:\Users\minho.lee\Dropbox\Datasets\EAV', face_detection=True)
+        [data_vis, data_vis_y] = vis_loader.process()
 
-            Vis_list = [tr_x_vis, tr_y_vis, te_x_vis, te_y_vis]
-            import pickle
-            with open(file_, 'wb') as f:
-                pickle.dump(Vis_list, f)
+        eav_loader = EAV_datasplit.EAVDataSplit(data_vis, data_vis_y)
+        [tr_x_vis, tr_y_vis, te_x_vis, te_y_vis] = eav_loader.get_split(h_idx=56)  # output(list): train, trlabel, test, telabel
+
+        Vis_list = [tr_x_vis, tr_y_vis, te_x_vis, te_y_vis]
+        import pickle
+        with open(file_, 'wb') as f:
+            pickle.dump(Vis_list, f)
 
 
 

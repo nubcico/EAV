@@ -85,7 +85,7 @@ class Attention(nn.Module):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         q, k, v = qkv.unbind(0)
-        q, k = self.q_norm(q), self.k_norm(k)
+        #q, k = self.q_norm(q), self.k_norm(k)
 
         if self.fused_attn:
             x = F.scaled_dot_product_attention(
@@ -163,7 +163,7 @@ class EEG_decoder(nn.Module):
             nn.Conv1d(
                 eeg_channel, eeg_channel * 2, 11, 1, padding=5, bias=False
             ),
-            nn.BatchNorm1d(eeg_channel * 2),
+            #nn.BatchNorm1d(eeg_channel * 2),
         )
     def forward(self, x):
         x = self.conv(x)
@@ -208,6 +208,7 @@ class PatchEmbed(nn.Module):
 
         self.norm = norm_layer(embed_dim) if norm_layer else nn.Identity()
     def forward(self, x):
+        x=x.permute(0,1,3,2) # needs to be permuted according to the outputs from the ast
         x = self.proj(x)
         x = x.flatten(2).transpose(1, 2)  # NCHW -> NLC
         x = self.norm(x)
