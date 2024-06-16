@@ -4,7 +4,7 @@ import torch
 from Dataload_audio import DataLoadAudio
 from EAV_datasplit import EAVDataSplit
 
-mod_path = r"/ast-finetuned-audioset"
+mod_path = r"../../Pre_trained_models/ast-finetuned-audioset"
 model_pre = AutoModelForAudioClassification.from_pretrained(mod_path)
 
 model_weights = []

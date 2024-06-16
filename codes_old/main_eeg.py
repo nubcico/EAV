@@ -1,7 +1,4 @@
-
-import Dataload_eeg
-import Transformer_EEG
-import EAV_datasplit
+from Transformer_torch import Transformer_EEG
 import numpy as np
 import os
 

@@ -2,9 +2,9 @@ import os
 import cv2
 import numpy as np
 import EAV_datasplit
-from facenet_pytorch import MTCNN, InceptionResnetV1
+from facenet_pytorch import MTCNN
 import torch
-from transformers import AutoImageProcessor
+
 
 class DataLoadVision:
     def __init__(self, subject='all', parent_directory=r'C:\Users\minho.lee\Dropbox\EAV', face_detection=False,
@@ -112,148 +112,45 @@ if __name__ == '__main__':
         [data_vis, data_vis_y] = vis_loader.process()
 
         eav_loader = EAV_datasplit.EAVDataSplit(data_vis, data_vis_y)
-        [tr_x_vis, tr_y_vis, te_x_vis, te_y_vis] = eav_loader.get_split(h_idx=56)  # output(list): train, trlabel, test, telabel
 
+        #each class contains 80 trials, 5/5 radio (h_idx=40), 7/3 ratio (h_dix=56)
+        [tr_x_vis, tr_y_vis, te_x_vis, te_y_vis] = eav_loader.get_split(h_idx=56)  # output(list): train, trlabel, test, telabel
+        data = [tr_x_vis, tr_y_vis, te_x_vis, te_y_vis]
+
+        ''' 
+        # Here you can write / load vision features tr:{280}(25, 56, 56, 3), te:{120}(25, 56, 56, 3): trials, frames, height, weight, channel
+        import pickle        
         Vis_list = [tr_x_vis, tr_y_vis, te_x_vis, te_y_vis]
-        import pickle
         with open(file_, 'wb') as f:
             pickle.dump(Vis_list, f)
+        
+        # You can directly work from here        
+        with open(file_, 'rb') as f:
+            Vis_list = pickle.load(f)
+        tr_x_vis, tr_y_vis, te_x_vis, te_y_vis = Vis_list
+        data = [tr_x_vis, tr_y_vis, te_x_vis, te_y_vis]
+        '''
+        # Transformer for Vision
+        from Transformer_torch import Transformer_Vision
+
+        mod_path = os.path.join('C:\\Users\\minho.lee\\Dropbox\\Projects\\EAV', 'facial_emotions_image_detection')
+        trainer = Transformer_Vision.ImageClassifierTrainer(data,
+                                                            model_path=mod_path, sub=f"subject_{sub:02d}",
+                                                            num_labels=5, lr=5e-5, batch_size=128)
+        trainer.train(epochs=10, lr=5e-4, freeze=True)
+        trainer.train(epochs=5, lr=5e-6, freeze=False)
+        trainer.outputs_test
+
+        # CNN for Vision
+        from CNN_torch.CNN_Vision import ImageClassifierTrainer
+        trainer = ImageClassifierTrainer(data, num_labels=5, lr=5e-5, batch_size=32)
+        trainer.train(epochs=3, lr=5e-4, freeze=True)
+        trainer.train(epochs=3, lr=5e-6, freeze=False)
+        trainer._delete_dataloader()
+        trainer.outputs_test
 
 
 
-'''
-    import Transformer_Vision
-    data = [tr_x_vis, tr_y_vis, te_x_vis, te_y_vis]
-    trainer = Transformer_Vision.ImageClassifierTrainer(data,
-                                     model_path='C:/Users/minho.lee/Dropbox/zEmotion_fusion/pythonProject/facial_emotions_image_detection',
-                                     num_labels=5, lr=5e-5, batch_size=128)
-
-    trainer.train(epochs=3, lr=5e-5, freeze=True)
-    trainer.train(epochs=3, lr=5e-6, freeze=False)
 
 
 
-
-
-Vis_list = [tr_x_vis, tr_y_vis, te_x_vis, te_y_vis]
-
-import pickle
-file_path = "C:/Users/minho.lee/Dropbox/zEmotion_fusion/pythonProject/Feature_vision/"
-idx = 2
-file_name = f"subject_{idx:02d}_vis.pkl"
-file_ = os.path.join(file_path, file_name)
-
-with open(file_, 'wb') as f:
-    pickle.dump(Vis_list, f)
-
-
-with open(file_, 'rb') as f:
-    vis_list2 = pickle.load(f)
-tr_x_vis, tr_y_vis, te_x_vis, te_y_vis = vis_list2
-
-
-
-import Transformer_Vision as vs
-trainer = vs.ImageClassifierTrainer([tr_x, tr_y, te_x, te_y], model_path = 'C:/Users/minho.lee/Dropbox/zEmotion_fusion/pythonProject/facial_emotions_image_detection',num_labels=5, lr=5e-5, batch_size=128, freeze=True)
-trainer.train(epochs=3)
-
- # "id2label": {    "0": "sad",    "1": "disgust",    "2": "angry",    "3": "neutral",    "4": "fear",    "5": "surprise",    "6": "happy"   },
-
-
-import torch
-from transformers import AutoImageProcessor, AutoModelForImageClassification
-processor = AutoImageProcessor.from_pretrained("C:/Users/minho.lee/Dropbox/zEmotion_fusion/pythonProject/facial_emotions_image_detection")
-
-model = AutoModelForImageClassification.from_pretrained("C:/Users/minho.lee/Dropbox/zEmotion_fusion/pythonProject/facial_emotions_image_detection")
-
-# Update the model's classification head
-num_labels = 5
-model.classifier = torch.nn.Linear(model.config.hidden_size, num_labels)
-model.num_labels = num_labels
-
-# Freeze all layers in the model
-for param in model.parameters():
-    param.requires_grad = False
-
-# Unfreeze the classifier layer
-for param in model.classifier.parameters():
-    param.requires_grad = True
-
-# Define the optimizer
-optimizer = torch.optim.AdamW(model.parameters(), lr=5e-5)
-
-# Assuming tr_x and te_x are lists or arrays of PIL Images
-def preprocess_images(image_list):
-    pixel_values_list = []
-    for img in image_list:
-        processed = processor(images=img, return_tensors="pt")
-        pixel_values = processed.pixel_values.squeeze()  # Remove batch dim
-        pixel_values_list.append(pixel_values)
-    return torch.stack(pixel_values_list)  # Stack into a single tensor
-
-# Preprocess and prepare the datasets
-tr_x_processed = preprocess_images(tr_x)
-tr_y_repeated = torch.tensor(tr_y, dtype=torch.long).repeat_interleave(25)
-train_dataset = TensorDataset(tr_x_processed.view(-1, 3, 224, 224), tr_y_repeated)  # Reshape and create dataset
-train_dataloader = DataLoader(train_dataset, batch_size=128, shuffle=True)
-
-te_x_processed = preprocess_images(te_x)
-te_y_repeated = torch.tensor(te_y, dtype=torch.long).repeat_interleave(25)
-test_dataset = TensorDataset(te_x_processed.view(-1, 3, 224, 224), te_y_repeated)  # Reshape and create dataset
-test_dataloader = DataLoader(test_dataset, batch_size=200, shuffle=False)
-
-def calculate_accuracy(outputs, labels):
-    _, predicted = torch.max(outputs.logits, 1)
-    correct = (predicted == labels).sum().item()
-    total = labels.size(0)
-    return correct / total
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model.to(device)
-
-# Training loop
-model.train()
-for epoch in range(3):  # number of epochs
-    for batch in train_dataloader:
-        pixel_values, labels = batch
-        pixel_values = pixel_values.to(device)
-        labels = labels.to(device)
-
-        optimizer.zero_grad()
-        outputs = model(pixel_values=pixel_values, labels=labels)
-        loss = outputs.loss
-        loss.backward()
-        optimizer.step()
-
-        print(f"Epoch {epoch+1}, Loss: {loss.item()}")
-
-    # Evaluation
-    model.eval()
-    with torch.no_grad():
-        total_accuracy = 0
-        for batch in test_dataloader:
-            pixel_values, labels = batch
-            pixel_values = pixel_values.to(device)
-            labels = labels.to(device)
-
-            outputs = model(pixel_values=pixel_values)
-            accuracy = calculate_accuracy(outputs, labels)
-            total_accuracy += accuracy
-
-        avg_accuracy = total_accuracy / len(test_dataloader)
-        print(f"Epoch {epoch + 1}, Loss: {loss.item()}, Test Accuracy: {avg_accuracy * 100:.2f}%")
-    model.train()
-
-
-# Freeze all layers in the model
-for param in model.parameters():
-    param.requires_grad = True
-
-# Unfreeze the classifier layer
-for param in model.classifier.parameters():
-    param.requires_grad = True
-
-optimizer = torch.optim.AdamW(model.parameters(), lr=5e-6)
-
-
-'''

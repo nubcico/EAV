@@ -1,12 +1,10 @@
 import os
 import scipy.io
-import numpy as np
 from scipy.signal import butter
 from scipy import signal
 
 from EAV_datasplit import *
 
-import Transformer_EEG
 '''
 NEU_SPE = 108, 0
 S_SPE = 1
@@ -133,6 +131,94 @@ class DataLoadEEG:
         return self.seg_f_div, self.label_div
 
 
+
+#create eeg pickle files
+if __name__ == "__main__":
+    for sub in range(1,43):
+        print(sub)
+        file_path = "C:/Users/minho.lee/Dropbox/Datasets/EAV/Input_images/EEG/"
+        file_name = f"subject_{sub:02d}_eeg.pkl"
+        file_ = os.path.join(file_path, file_name)
+        eeg_loader = DataLoadEEG(subject=sub, band=[0.5, 45], fs_orig=500, fs_target=100,
+                                 parent_directory='C://Users//minho.lee//Dropbox//Datasets//EAV')
+        data_eeg, data_eeg_y = eeg_loader.data_prepare()
+
+        division_eeg = EAVDataSplit(data_eeg, data_eeg_y)
+        [tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg] = division_eeg.get_split(h_idx=56)
+        EEG_list = [tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg]
+
+        ''' 
+        # Here you can write / load vision features tr:{280}(30, 500), te:{120}(30, 500)
+        import pickle
+        with open(file_, 'wb') as f:
+            pickle.dump(EEG_list, f)
+        
+        # You can directly work from here
+        with open(file_, 'rb') as f:
+            eeg_list = pickle.load(f)
+        tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg = eeg_list
+        data = [tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg]
+        '''
+        data = [tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg]
+
+        # Transformer for EEG
+        from Transformer_torch import Transformer_EEG
+        model = Transformer_EEG.EEGClassificationModel(eeg_channel=30)
+        trainer = Transformer_EEG.EEGModelTrainer(data, model = model, lr=0.001, batch_size = 64)
+        trainer.train(epochs=100, lr=None, freeze=False)
+
+        [accuracy, predictions] = trainer.evaluate()
+
+        # CNN_tensorflow for EEG
+        from CNN_tensorflow.CNN_EEG_tf import EEGNet
+        from sklearn.metrics import accuracy_score, confusion_matrix
+
+        model = EEGNet(nb_classes=5, D=8, F2=64, Chans=30, kernLength=300, Samples=500,
+                       dropoutRate=0.5)
+        model.compile(loss='categorical_crossentropy', optimizer='adam',
+                      metrics=['accuracy'])
+        y_train = np.zeros((tr_y_eeg.shape[0], 5))
+        y_train[np.arange(tr_y_eeg.shape[0]), tr_y_eeg.flatten()] = 1
+        y_test = np.zeros((te_y_eeg.shape[0], 5))
+        y_test[np.arange(te_y_eeg.shape[0]), te_y_eeg.flatten()] = 1
+        x_train = np.reshape(tr_x_eeg, (280, 30, 500, 1))
+        x_test = np.reshape(te_x_eeg, (120, 30, 500, 1))
+        model.fit(x_train, y_train, batch_size=32, epochs=200, shuffle=True, validation_data=(x_test, y_test))
+
+        pred = model.predict(x_test)
+        pred = np.argmax(pred, axis=1)
+
+        y_test2 = np.argmax(y_test, axis=1)
+        cm = confusion_matrix(pred, y_test2)
+        accuracy = accuracy_score(pred, y_test2)
+
+        # CNN_pytorch for EEG, fix the error, and make the accuracy same
+        from CNN_torch.EEGNet_tor import EEGNet_tor, Trainer_uni
+        import torch.nn as nn
+
+        model = EEGNet_tor(nb_classes=5, D=8, F2=64, Chans=30, kernLength=300, Samples=500,
+                           dropoutRate=0.5)
+        trainer = Trainer_uni(model=model, data=data, lr=1e-5, batch_size=32, num_epochs=200)
+        trainer.train()
+        model.eval()
+
+        criterion = nn.CrossEntropyLoss()
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        te_x_eeg = torch.tensor(te_x_eeg, dtype=torch.float32).to(device)
+        te_y_eeg = torch.tensor(te_y_eeg, dtype=torch.long).to(device)
+        model.to(device)
+
+        with torch.no_grad():
+            scores = model(te_x_eeg)
+            predictions = scores.argmax(dim=1)
+            correct = (predictions == te_y_eeg).sum().item()
+            total = te_y_eeg.size(0)
+            accuracy = correct / total
+        print(accuracy)
+
+
+
+
 ''' Direct evaluation
 if __name__ == "__main__":
     eeg_loader = DataLoadEEG(subject=1, band=[0.5, 45], fs_orig=500, fs_target=100,
@@ -145,6 +231,7 @@ if __name__ == "__main__":
 
     trainer = Transformer_EEG.EEGModelTrainer(data, lr=0.001, batch_size = 64)
     trainer.train(epochs=200, lr=None, freeze=False)
+'''
 '''
 from Transformer_EEG import EEGClassificationModel
 accuracy_all = list()
@@ -168,22 +255,5 @@ if __name__ == "__main__": # from pickle data
         [accuracy, predictions] = trainer.evaluate()
         accuracy_all.append(accuracy)
         prediction_all.append(predictions)
-
-''' create eeg pickle files
-if __name__ == "__main__":
-    for sub in range(1,43):
-        print(sub)
-        file_path = "C:/Users/minho.lee/Dropbox/Datasets/EAV/Input_images/EEG/"
-        file_name = f"subject_{sub:02d}_eeg.pkl"
-        file_ = os.path.join(file_path, file_name)
-        eeg_loader = DataLoadEEG(subject=sub, band=[0.5, 45], fs_orig=500, fs_target=100,
-                                 parent_directory='C://Users//minho.lee//Dropbox//Datasets//EAV')
-        data_eeg, data_eeg_y = eeg_loader.data_prepare()
-
-        division_eeg = EAVDataSplit(data_eeg, data_eeg_y)
-        [tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg] = division_eeg.get_split()
-        EEG_list = [tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg]
-        import pickle
-        with open(file_, 'wb') as f:
-            pickle.dump(EEG_list, f)
 '''
+

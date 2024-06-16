@@ -2,10 +2,10 @@ import os
 import torchaudio
 from torchaudio.transforms import Resample
 from transformers import ASTFeatureExtractor
-import numpy as np
 
 from EAV_datasplit import *
-import Transformer_Audio
+from Transformer_torch import Transformer_Audio
+
 
 class DataLoadAudio:
     def __init__(self, subject='all', parent_directory=r'C:\Users\minho.lee\Dropbox\Datasets\EAV', target_sampling_rate=16000):
@@ -79,23 +79,45 @@ class DataLoadAudio:
 
 if __name__ == "__main__":
     test_acc = []
-    for sub_idx in range(1,43):
-        aud_loader = DataLoadAudio(subject=sub_idx, parent_directory=r'C:\Users\minho.lee\Dropbox\Datasets\EAV')
+    for sub in range(1,43):
+        file_path = "C:/Users/minho.lee/Dropbox/Datasets/EAV/Input_images/Audio/"
+        file_name = f"subject_{sub:02d}_aud.pkl"
+        file_ = os.path.join(file_path, file_name)
+
+        aud_loader = DataLoadAudio(subject=sub, parent_directory=r'C:\Users\minho.lee\Dropbox\Datasets\EAV')
         [data_aud , data_aud_y] = aud_loader.process()
         # audio_loader.label_emotion()
 
         division_aud = EAVDataSplit(data_aud, data_aud_y)
-        [tr_x_aud, tr_y_aud, te_x_aud , te_y_aud] = division_aud.get_split()
+        [tr_x_aud, tr_y_aud, te_x_aud , te_y_aud] = division_aud.get_split(h_idx=56)
         data = [tr_x_aud, tr_y_aud, te_x_aud , te_y_aud]
 
+        ''' 
+        # Here you can write / load vision features tr:{280}(80000), te:{120}(80000): trials, frames, height, weight, channel
+        # This code is to store the RAW audio input to the folder: (400, 80000), 16000Hz
+        import pickle        
+        Aud_list = [tr_x_aud, tr_y_aud, te_x_aud, te_y_aud]
+        with open(file_, 'wb') as f:
+            pickle.dump(Aud_list, f)
+
+        # You can directly work from here
+        with open(file_, 'rb') as f:
+            Aud_list = pickle.load(f)
+        [tr_x_aud, tr_y_aud, te_x_aud, te_y_aud] = Aud_list
+        data = [tr_x_aud, tr_y_aud, te_x_aud , te_y_aud]
+        '''
         mod_path = os.path.join(os.getcwd(), 'ast-finetuned-audioset')
-        Trainer = Transformer_Audio.AudioModelTrainer(data,  model_path=mod_path, sub = f"subject_{sub_idx:02d}",
-                                            num_classes=5, weight_decay=1e-5, lr=0.005, batch_size = 8)
+        Trainer = Transformer_Audio.AudioModelTrainer(data, model_path=mod_path, sub =f"subject_{sub:02d}",
+                                                      num_classes=5, weight_decay=1e-5, lr=0.005, batch_size = 8)
 
         Trainer.train(epochs=10, lr=5e-4, freeze=True)
         Trainer.train(epochs=15, lr=5e-6, freeze=False)
-
         test_acc.append(Trainer.outputs_test)
+
+        ## Add CNN - audio here, refer to the file Dataload_vision.py
+
+
+
 
 
 ''' This code is to store the RAW audio input to the folder: (400, 80000), 16000Hz
@@ -107,7 +129,7 @@ if __name__ == "__main__":
         file_name = f"subject_{sub:02d}_aud.pkl"
         file_ = os.path.join(file_path, file_name)
 
-        aud_loader = DataLoadAudio(subject=sub, parent_directory=r'C:\Users\minho.lee\Dropbox\Datasets\EAV')
+        aud_loader = DataLoadAudio(subject=sub, parent_directory='C:/Users/minho.lee/Dropbox/Datasets/EAV')
         [data_aud , data_aud_y] = aud_loader.process()
         # audio_loader.label_emotion()
 

@@ -112,6 +112,52 @@ result_conf = list()
 result_acc = list()
 result_f1 = list()
 
+for sub in range(1, 43):
+    file_path = "C:/Users/minho.lee/Dropbox/Datasets/EAV/Input_images/EEG/"
+    file_name = f"subject_{sub:02d}_eeg.pkl"
+    file_ = os.path.join(file_path, file_name)
+    import pickle
+    with open(file_, 'rb') as f:
+        eeg_list2 = pickle.load(f)
+    tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg = eeg_list2
+    data = [tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg]
+
+    model = EEGNet(nb_classes=5, D=8, F2=64, Chans=30, kernLength=300, Samples=500,
+                   dropoutRate=0.5)
+
+    model.compile(loss='categorical_crossentropy', optimizer='adam',
+                  metrics=['accuracy'])
+
+    y_train = np.zeros((tr_y_eeg.shape[0], 5))
+    y_train[np.arange(tr_y_eeg.shape[0]), tr_y_eeg.flatten()] = 1
+    y_test = np.zeros((te_y_eeg.shape[0], 5))
+    y_test[np.arange(te_y_eeg.shape[0]), te_y_eeg.flatten()] = 1
+    x_train = np.reshape(tr_x_eeg, (280, 30, 500, 1))
+    x_test = np.reshape(te_x_eeg, (120, 30, 500, 1))
+    model.fit(x_train, y_train, batch_size=32, epochs=200, shuffle=True, validation_data=(x_test, y_test))
+
+    pred = model.predict(x_test)
+    pred = np.argmax(pred, axis=1)
+
+    y_test2 = np.argmax(y_test, axis=1)
+
+    cm = confusion_matrix(pred, y_test2)
+
+    accuracy = accuracy_score(pred, y_test2)
+    f1 = f1_score(y_test2, pred, average='weighted')  # 'weighted' for multiclass F1-Score
+
+    result_conf.append(cm)
+    result_acc.append(accuracy)
+    result_f1.append(f1)  # Append the F1-Score to your result list
+    print(result_acc)
+
+result_conf_np = np.array(result_conf)
+summed_confusion_matrix = np.sum(result_conf_np, axis=0)
+summed_confusion_matrix_T = summed_confusion_matrix.T
+
+'''
+
+
 for subject in sorted_subject_folders:
     # Remove trailing '__' if present
     # subject = subject.rstrip('__')
@@ -221,3 +267,4 @@ for subject in sorted_subject_folders:
 result_conf_np = np.array(result_conf)
 summed_confusion_matrix = np.sum(result_conf_np, axis=0)
 summed_confusion_matrix_T = summed_confusion_matrix.T
+'''

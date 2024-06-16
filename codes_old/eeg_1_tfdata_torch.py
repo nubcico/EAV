@@ -198,7 +198,7 @@ for subject in sorted_subject_folders:
 
     data = [x_train, y_train, x_test, y_test]
 
-    from Fusion.eeg_2 import EEGNet_tor
+    from codes_old.eeg_2 import EEGNet_tor
     from Fusion.VIT_audio.Transformer_audio import Trainer_uni
     model = EEGNet_tor(nb_classes=5, D=8, F2=64, Chans=30, kernLength=300, Samples=500,
                    dropoutRate=0.5)

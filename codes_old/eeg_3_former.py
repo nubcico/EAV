@@ -15,5 +15,5 @@ model_eeg = ViT_Encoder(classifier=True, img_size=[60, 500], in_chans=1,
                         patch_size=(60, 1), stride=1, depth=1, num_heads=1,
                         embed_eeg=True, embed_pos=False)
 
-trainer = Trainer_uni(model=model_eeg, data=data, lr=1e-5, batch_size=32, num_epochs=100)
+trainer = Trainer_uni(model=model_eeg, data=data, lr=1e-5, batch_size=16, num_epochs=100)
 trainer.train()
