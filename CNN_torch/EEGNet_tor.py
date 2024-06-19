@@ -5,9 +5,11 @@ from Fusion.VIT_audio.Transformer_audio import Trainer_uni
 #from tensorflow.keras.models import Model
 from torch.nn.utils import weight_norm
 
+import os
+import pickle 
+from torch.utils.data import DataLoader, TensorDataset
+
 # Define the EEGNet model
-import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.parametrizations import spectral_norm
 import torch.optim as optim
@@ -25,13 +27,14 @@ class EEGNet_tor(nn.Module):
         self.firstBN = nn.BatchNorm2d(F1)
         self.elu = nn.ELU()
 
-        self.depthwiseConv = nn.Conv2d(F1, F1 * D, (Chans, 1), groups=F1, padding=0, bias=False)
+        #self.depthwiseConv = nn.Conv2d(F1, F1 * D, (Chans, 1), groups=F1, padding=0, bias=False)
+        self.depthwiseConv = nn.Conv2d(F1, F1 * D, (Chans, 1), groups=F1, padding='valid', bias=False)
         self.depthwiseBN = nn.BatchNorm2d(F1 * D)
         self.depthwisePool = nn.AvgPool2d((1, 4))
 
         # Applying max-norm constraint
-        self.depthwiseConv.register_forward_hook(
-            lambda module, inputs, outputs: module.weight.data.renorm_(p=2, dim=0, maxnorm=norm_rate))
+        #self.depthwiseConv.register_forward_hook(
+           # lambda module, inputs, outputs: module.weight.data.renorm_(p=2, dim=0, maxnorm=norm_rate))
 
         # Block 2
         self.separableConv = nn.Conv2d(F1 * D, F2, (1, 16), padding='same', bias=False)
@@ -44,8 +47,8 @@ class EEGNet_tor(nn.Module):
         self.softmax = nn.Softmax(dim=1)
 
         # Applying max-norm constraint
-        self.dense.register_forward_hook(
-            lambda module, inputs, outputs: module.weight.data.renorm_(p=2, dim=0, maxnorm=norm_rate))
+        #self.dense.register_forward_hook(
+            #lambda module, inputs, outputs: module.weight.data.renorm_(p=2, dim=0, maxnorm=norm_rate))
 
     def forward(self, x):
         x = self.firstConv(x)
@@ -135,49 +138,90 @@ class Trainer_uni:
         print(f"Validation - Loss: {avg_loss:.4f}, Accuracy: {accuracy:.4f}")
 
 
-def _prepare_dataloader(self, x, y, shuffle=False):
-    dataset = TensorDataset(torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.long))
-    dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=shuffle)
-    return dataloader
-
-
 if __name__ == "__main__":
+    
     result_acc = list()
+    file_path = "C:/Users/minho.lee/Dropbox/Datasets/EAV/Input_images/EEG/"
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
     for i in range(1, 43):
-        eeg_loader = DataLoadEEG(subject=i, band=[5, 30], fs_orig=500, fs_target=100,
-                                 parent_directory=r'C:\Users\minho.lee\Dropbox\Datasets\EAV')
-        data_eeg, data_eeg_y = eeg_loader.data_prepare()
+        file_name = f"subject_{i:02d}_eeg.pkl"
+        file_ = os.path.join(file_path, file_name)
+        print(i)
+                
+        # Check if the file exists and is not empty
+        if not os.path.isfile(file_):
+            print(f"File {file_} does not exist.")
+            continue
+        if os.path.getsize(file_) == 0:
+            print(f"File {file_} is empty.")
+            continue
 
-        division_eeg = EAVDataSplit(data_eeg, data_eeg_y)
-        [tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg] = division_eeg.get_split()
-        tr_x_eeg = torch.from_numpy(tr_x_eeg).float().unsqueeze(1)  # Reshape to (200, 1, 30, 500)
-        te_x_eeg = torch.from_numpy(te_x_eeg).float().unsqueeze(1)  # Reshape to (200, 1, 30, 500)
-
-        data = [tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg]
-
-        #####################################################
-        model = EEGNet_tor(nb_classes=5, D=8, F2=64, Chans=30, kernLength=300, Samples=500,
-                       dropoutRate=0.5)
-        trainer = Trainer_uni(model=model, data=data, lr=1e-5, batch_size=32, num_epochs=350)
-        trainer.train()
-        model.eval()  # 모델을 평가 모드로 설정
-
-        # 손실 함수 설정
-        criterion = nn.CrossEntropyLoss()
-        # 데이터를 PyTorch 텐서로 변환 및 GPU로 이동
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        te_x_eeg = torch.tensor(te_x_eeg, dtype=torch.float32).to(device)
+        try:
+            with open(file_, 'rb') as f:
+                eeg_list = pickle.load(f)
+        except EOFError as e:
+            print(f"Error loading {file_}: {e}")
+            continue
+        
+        tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg = eeg_list
+        
+        #to torch and reshape        
+        tr_x_eeg = torch.from_numpy(tr_x_eeg).float().unsqueeze(1).to(device)  # Reshape to (batch, 1, chans, samples)
+        tr_y_eeg = torch.tensor(tr_y_eeg, dtype=torch.long).to(device)
+        te_x_eeg = torch.from_numpy(te_x_eeg).float().unsqueeze(1).to(device)  # Reshape to (batch, 1, chans, samples)   
         te_y_eeg = torch.tensor(te_y_eeg, dtype=torch.long).to(device)
+
+        # Create DataLoader
+        train_dataset = TensorDataset(tr_x_eeg, tr_y_eeg)
+        test_dataset = TensorDataset(te_x_eeg, te_y_eeg)
+        
+        # Parameters
+        num_epochs = 350
+        norm_rate = 1.0
+        batch_size = 32
+        
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+        
+        # Initialize model
+        model = EEGNet_tor(nb_classes=5, Chans=30, Samples=500)
         model.to(device)
-        # 평가 실행
+        
+        # Define loss and optimizer
+        criterion = nn.CrossEntropyLoss()
+        optimizer = optim.Adam(model.parameters(), lr=0.001)
+        
+        # Training 
+        for epoch in range(num_epochs):
+            model.train()
+            for batch_data, batch_labels in train_loader:
+                optimizer.zero_grad()
+                outputs = model(batch_data)
+                loss = criterion(outputs, batch_labels)
+                loss.backward()
+                optimizer.step()
+                
+                # Apply max-norm constraint to tensors
+                # (here is max_norm is done instead of in model architecture)
+                with torch.no_grad():
+                    for name, param in model.named_parameters():
+                        if 'weight' in name and param.dim() >= 2:
+                            param.data = param.data.renorm_(p=2, dim=0, maxnorm=norm_rate)
+            
+            print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
+        
+        # Evaluation 
+        model.eval()
+        correct = 0
+        total = 0
         with torch.no_grad():
-            scores = model(te_x_eeg)
-            predictions = scores.argmax(dim=1)
-            correct = (predictions == te_y_eeg).sum().item()
-            total = te_y_eeg.size(0)  # 전체 데이터 개수
-            accuracy = correct / total
-
-        result_acc.append(accuracy)
-        print(result_acc)
-
-
+            for batch_data, batch_labels in test_loader:
+                outputs = model(batch_data)
+                _, predicted = torch.max(outputs.data, 1)
+                total += batch_labels.size(0)
+                correct += (predicted == batch_labels).sum().item()
+        acc = correct / total
+        result_acc.append(acc)
+        
+        print(f'Accuracy: {100 * correct / total:.2f}%')
