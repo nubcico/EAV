@@ -70,6 +70,8 @@ The raw dataset, along with the pre-extracted features, can be accessed and down
 
 ### Program Execution Process
 
+#### Selecting the Dataset Type
+
 After downloading the dataset, you must choose between utilizing the raw dataset or the pre-extracted features, as this decision will determine your subsequent steps.
 
 If you opt for the raw dataset, only a minor modification is required in the `Dataload_Audio.py` file: adjust the `parent_directory` parameter in the `DataLoadAudio` class to the directory location of the "EAV" folder on your system. 
@@ -96,6 +98,53 @@ aud_loader = DataLoadAudio(subject=sub, parent_directory=r'D:\EAV')
 ```
 
 The same adjustments should be applied for each modality.
+
+#### Selecting the classification model
+For the classification of the audio modality, we employ the pretrained Audio Spectrogram Transformer (AST) model, as implemented in the 'Dataload_audio.py' and 'Transformer_torch/Transformer_Audio.py' files:
+
+```sh
+from Transformer_torch import Transformer_Audio
+...
+mod_path = os.path.join(os.getcwd(), 'ast-finetuned-audioset')
+Trainer = Transformer_Audio.AudioModelTrainer(data, model_path=mod_path, sub =f"subject_{sub:02d}",
+                                                      num_classes=5, weight_decay=1e-5, lr=0.005, batch_size = 8)
+```
+The 'AudioModelTrainer' class utilizes the following implementation to load the AST model from the Hugging Face Transformers library:
+```sh
+from transformers import AutoModelForAudioClassification
+...
+class AudioModelTrainer:
+    def __init__(self, DATA, model_path, sub = '', num_classes=5, weight_decay=1e-5, lr=0.001, batch_size=128):
+        ...
+        self.model = AutoModelForAudioClassification.from_pretrained(model_path)
+```
+
+For the video and EEG modalities, the framework allows the choice between Transformer-based and CNN-based models. For instance, the following example from the 'Dataload_vision.py' file illustrates the selection process: 
+
+```sh
+        # Transformer for Vision
+        from Transformer_torch import Transformer_Vision
+
+        mod_path = os.path.join('C:\\Users\\minho.lee\\Dropbox\\Projects\\EAV', 'facial_emotions_image_detection')
+        trainer = Transformer_Vision.ImageClassifierTrainer(data,
+                                                            model_path=mod_path, sub=f"subject_{sub:02d}",
+                                                            num_labels=5, lr=5e-5, batch_size=128)
+        trainer.train(epochs=10, lr=5e-4, freeze=True)
+        trainer.train(epochs=5, lr=5e-6, freeze=False)
+        trainer.outputs_test
+```
+
+Alternatively, the CNN-based model can be utilized as follows:
+```sh
+        # CNN for Vision
+        from CNN_torch.CNN_Vision import ImageClassifierTrainer
+        trainer = ImageClassifierTrainer(data, num_labels=5, lr=5e-5, batch_size=32)
+        trainer.train(epochs=3, lr=5e-4, freeze=True)
+        trainer.train(epochs=3, lr=5e-6, freeze=False)
+        trainer._delete_dataloader()
+        trainer.outputs_test
+```
+The same approach can be applied for the EEG modality, providing flexibility in choosing between Transformer and CNN architectures based on the requirements of the task.
 
 To execute the program via the command line, run the following commands for each modality:
 
