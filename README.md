@@ -66,12 +66,16 @@ conducted synchronously. This ensures uniform annotations throughout the dataset
 
 ### Dataset
 
-The raw dataset, along with the pre-extracted features, can be accessed and downloaded from Zenodo.
+The raw dataset, along with the pre-extracted features, can be accessed and downloaded from [Zenodo](https://doi.org/10.5281/zenodo.10205702).
 
 ### Program Execution Process
 
 After downloading the dataset, you must choose between utilizing the raw dataset or the pre-extracted features, as this decision will determine your subsequent steps.
-If you opt for the raw dataset, only a minor modification is required in the `Dataload_Audio.py` file: adjust the `parent_directory` parameter in the `DataLoadAudio` class to the directory location of the "EAV" folder on your system. Using the raw dataset enables customization of your training and testing data split ratio through the EAVDataSplit class. In our case, we employed a 70/30 split, calculated as `h_idx = 56`. If `x` is your desired training dataset percentage (e.g., x = 70), `h_idx` can be calculated using the formula `h_idx = (x * 80) / 100`.
+
+If you opt for the raw dataset, only a minor modification is required in the `Dataload_Audio.py` file: adjust the `parent_directory` parameter in the `DataLoadAudio` class to the directory location of the "EAV" folder on your system. 
+
+Using the raw dataset enables customization of your training and testing data split ratio through the EAVDataSplit class. In our case, we employed a 70/30 split, calculated as `h_idx = 56`. If `x` is your desired training dataset percentage (e.g., x = 70), `h_idx` can be calculated using the formula `h_idx = (x * 80) / 100`.
+
 If you decide to work with the pre-extracted features, you need to modify the code as follows: comment out the lines currently used for the raw dataset before `aud_list.get_split`, then uncomment the section for the pre-extracted features. Additionally, set the `direct` variable to point to the path containing the "Audio" directory on your system.
 
 ```sh
@@ -90,6 +94,25 @@ aud_loader = DataLoadAudio(subject=sub, parent_directory=r'D:\EAV')
             
         data = [tr_x_aud, tr_y_aud, te_x_aud , te_y_aud]
 ```
+
+The same adjustments should be applied for each modality.
+
+To execute the program via the command line, run the following commands for each modality:
+
+   ```sh
+   python Dataload_audio.py
+   ```
+   ```sh
+   python Dataload_video.py
+   ```
+   ```sh
+   python Dataload_eeg.py
+   ```
+### Data Preprocessing
+
+As illustrated in the previous code snippet, the process() method prepares the raw audio data, converting it into the appropriate format for subsequent classification. Each modality follows its own distinct preprocessing procedure, beginning with the audio modality.
+
+
 
 <!-- ROADMAP -->
 ## Roadmap
