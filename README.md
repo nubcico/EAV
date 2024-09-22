@@ -109,6 +109,9 @@ from Transformer_torch import Transformer_Audio
 mod_path = os.path.join(os.getcwd(), 'ast-finetuned-audioset')
 Trainer = Transformer_Audio.AudioModelTrainer(data, model_path=mod_path, sub =f"subject_{sub:02d}",
                                                       num_classes=5, weight_decay=1e-5, lr=0.005, batch_size = 8)
+Trainer.train(epochs=10, lr=5e-4, freeze=True)
+Trainer.train(epochs=15, lr=5e-6, freeze=False)
+test_acc.append(Trainer.outputs_test)
 ```
 The 'AudioModelTrainer' class is designed to train and fine-tune this model effectively. It leverages PyTorch and the Hugging Face Transformers library to adapt the AST model for the emotion classification task. 
 
