@@ -116,36 +116,35 @@ The 'AudioModelTrainer' class is designed to train and fine-tune this model effe
 from transformers import AutoModelForAudioClassification
 ...
 class AudioModelTrainer:
-    def __init__(self, DATA, model_path, sub = '', num_classes=5, weight_decay=1e-5, lr=0.001, batch_size=128):
+    def __init__(self, DATA, model_path, sub='', num_classes=5, weight_decay=1e-5, lr=0.001, batch_size=128):
         ...
         self.model = AutoModelForAudioClassification.from_pretrained(model_path)
-        self.model.classifier.dense = torch.nn.Linear(self.model.classifier.dense.in_features, num_classes)
 ```
 
 For the video and EEG modalities, the framework allows the choice between Transformer-based and CNN-based models. Specifically, for video, we utilize the Vision Transformer model, which is pretrained on the facial_emotions_image_detection dataset. The following example from the 'Dataload_vision.py' file illustrates both options: 
 
 ```python
-        # Transformer for Vision
-        from Transformer_torch import Transformer_Vision
+# Transformer for Vision
+from Transformer_torch import Transformer_Vision
 
-        mod_path = os.path.join('C:\\Users\\minho.lee\\Dropbox\\Projects\\EAV', 'facial_emotions_image_detection')
-        trainer = Transformer_Vision.ImageClassifierTrainer(data,
-                                                            model_path=mod_path, sub=f"subject_{sub:02d}",
-                                                            num_labels=5, lr=5e-5, batch_size=128)
-        trainer.train(epochs=10, lr=5e-4, freeze=True)
-        trainer.train(epochs=5, lr=5e-6, freeze=False)
-        trainer.outputs_test
+mod_path = os.path.join('C:\\Users\\minho.lee\\Dropbox\\Projects\\EAV', 'facial_emotions_image_detection')
+trainer = Transformer_Vision.ImageClassifierTrainer(data,
+                                                    model_path=mod_path, sub=f"subject_{sub:02d}",
+                                                    num_labels=5, lr=5e-5, batch_size=128)
+trainer.train(epochs=10, lr=5e-4, freeze=True)
+trainer.train(epochs=5, lr=5e-6, freeze=False)
+trainer.outputs_test
 ```
 
 Alternatively, the CNN-based model can be utilized as follows:
 ```python
-        # CNN for Vision
-        from CNN_torch.CNN_Vision import ImageClassifierTrainer
-        trainer = ImageClassifierTrainer(data, num_labels=5, lr=5e-5, batch_size=32)
-        trainer.train(epochs=3, lr=5e-4, freeze=True)
-        trainer.train(epochs=3, lr=5e-6, freeze=False)
-        trainer._delete_dataloader()
-        trainer.outputs_test
+# CNN for Vision
+from CNN_torch.CNN_Vision import ImageClassifierTrainer
+trainer = ImageClassifierTrainer(data, num_labels=5, lr=5e-5, batch_size=32)
+trainer.train(epochs=3, lr=5e-4, freeze=True)
+trainer.train(epochs=3, lr=5e-6, freeze=False)
+trainer._delete_dataloader()
+trainer.outputs_test
 ```
 The same approach can be applied for the EEG modality, providing flexibility in choosing between Transformer and CNN architectures based on the requirements of the task.
 
