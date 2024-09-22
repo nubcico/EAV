@@ -100,7 +100,8 @@ aud_loader = DataLoadAudio(subject=sub, parent_directory=r'D:\EAV')
 The same adjustments should be applied for each modality.
 
 #### Selecting the classification model
-For the classification of the audio modality, we employ the pretrained Audio Spectrogram Transformer (AST) model, as implemented in the 'Dataload_audio.py' and 'Transformer_torch/Transformer_Audio.py' files:
+
+For the classification of the audio modality, we employ the Audio Spectrogram Transformer (AST) model pretrained on the AudioSet dataset, which we will subsequently fine-tune on our specific dataset, as implemented in the 'Dataload_audio.py' and 'Transformer_torch/Transformer_Audio.py' files.
 
 ```sh
 from Transformer_torch import Transformer_Audio
@@ -109,7 +110,8 @@ mod_path = os.path.join(os.getcwd(), 'ast-finetuned-audioset')
 Trainer = Transformer_Audio.AudioModelTrainer(data, model_path=mod_path, sub =f"subject_{sub:02d}",
                                                       num_classes=5, weight_decay=1e-5, lr=0.005, batch_size = 8)
 ```
-The 'AudioModelTrainer' class utilizes the following implementation to load the AST model from the Hugging Face Transformers library:
+The 'AudioModelTrainer' class is designed to train and fine-tune this model effectively. It leverages PyTorch and the Hugging Face Transformers library to adapt the AST model for the emotion classification task. 
+
 ```sh
 from transformers import AutoModelForAudioClassification
 ...
@@ -117,9 +119,10 @@ class AudioModelTrainer:
     def __init__(self, DATA, model_path, sub = '', num_classes=5, weight_decay=1e-5, lr=0.001, batch_size=128):
         ...
         self.model = AutoModelForAudioClassification.from_pretrained(model_path)
+        self.model.classifier.dense = torch.nn.Linear(self.model.classifier.dense.in_features, num_classes)
 ```
 
-For the video and EEG modalities, the framework allows the choice between Transformer-based and CNN-based models. For instance, the following example from the 'Dataload_vision.py' file illustrates the selection process: 
+For the video and EEG modalities, the framework allows the choice between Transformer-based and CNN-based models. Specifically, for video, we utilize the Vision Transformer model, which is pretrained on the facial_emotions_image_detection dataset. The following example from the 'Dataload_vision.py' file illustrates both options: 
 
 ```sh
         # Transformer for Vision
@@ -146,17 +149,12 @@ Alternatively, the CNN-based model can be utilized as follows:
 ```
 The same approach can be applied for the EEG modality, providing flexibility in choosing between Transformer and CNN architectures based on the requirements of the task.
 
-To execute the program via the command line, run the following commands for each modality:
+To execute the program via the command line, run the following commands for each modality respectively:
 
    ```sh
    python Dataload_audio.py
    ```
-   ```sh
-   python Dataload_video.py
-   ```
-   ```sh
-   python Dataload_eeg.py
-   ```
+
 ### Data Preprocessing
 
 As illustrated in the previous code snippet, the process() method prepares the raw audio data, converting it into the appropriate format for subsequent classification. Each modality follows its own distinct preprocessing procedure, beginning with the audio modality.
