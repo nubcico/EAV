@@ -80,7 +80,7 @@ Using the raw dataset enables customization of your training and testing data sp
 
 If you decide to work with the pre-extracted features, you need to modify the code as follows: comment out the lines currently used for the raw dataset before `aud_list.get_split`, then uncomment the section for the pre-extracted features. Additionally, set the `direct` variable to point to the path containing the "Audio" directory on your system.
 
-```sh
+```python
 aud_loader = DataLoadAudio(subject=sub, parent_directory=r'D:\EAV')
         [data_aud , data_aud_y] = aud_loader.process()
         aud_list = EAVDataSplit(data_aud, data_aud_y)
@@ -103,7 +103,7 @@ The same adjustments should be applied for each modality.
 
 For the classification of the audio modality, we employ the Audio Spectrogram Transformer (AST) model pretrained on the AudioSet dataset, which we will subsequently fine-tune on our specific dataset, as implemented in the 'Dataload_audio.py' and 'Transformer_torch/Transformer_Audio.py' files.
 
-```sh
+```python
 from Transformer_torch import Transformer_Audio
 ...
 mod_path = os.path.join(os.getcwd(), 'ast-finetuned-audioset')
@@ -112,7 +112,7 @@ Trainer = Transformer_Audio.AudioModelTrainer(data, model_path=mod_path, sub =f"
 ```
 The 'AudioModelTrainer' class is designed to train and fine-tune this model effectively. It leverages PyTorch and the Hugging Face Transformers library to adapt the AST model for the emotion classification task. 
 
-```sh
+```python
 from transformers import AutoModelForAudioClassification
 ...
 class AudioModelTrainer:
@@ -124,7 +124,7 @@ class AudioModelTrainer:
 
 For the video and EEG modalities, the framework allows the choice between Transformer-based and CNN-based models. Specifically, for video, we utilize the Vision Transformer model, which is pretrained on the facial_emotions_image_detection dataset. The following example from the 'Dataload_vision.py' file illustrates both options: 
 
-```sh
+```python
         # Transformer for Vision
         from Transformer_torch import Transformer_Vision
 
@@ -138,7 +138,7 @@ For the video and EEG modalities, the framework allows the choice between Transf
 ```
 
 Alternatively, the CNN-based model can be utilized as follows:
-```sh
+```python
         # CNN for Vision
         from CNN_torch.CNN_Vision import ImageClassifierTrainer
         trainer = ImageClassifierTrainer(data, num_labels=5, lr=5e-5, batch_size=32)
@@ -156,9 +156,33 @@ To execute the program via the command line, run the following commands for each
    ```
 
 ### Data Preprocessing
+Here’s a more concise version of the "Data Preprocessing" section:
 
-As illustrated in the previous code snippet, the process() method prepares the raw audio data, converting it into the appropriate format for subsequent classification. Each modality follows its own distinct preprocessing procedure, beginning with the audio modality.
+### Data Preprocessing
 
+As illustrated in the previous code snippet, the `process()` method prepares the raw audio data for classification through several key steps:
+
+1. **File Organization**: The `data_files()` method retrieves audio file paths and emotion labels from a specified directory structure.
+
+2. **Audio Resampling**: The `feature_extraction()` method loads the audio waveforms using `torchaudio`. If the original sampling rate differs from the target rate of 16,000 Hz, the audio is resampled for consistency.
+
+3. **Segmentation**: Audio is segmented into 5-second clips, with each segment added to a list of features alongside its corresponding emotion label.
+
+4. **Feature Extraction**: The `ASTFeatureExtractor` prepares the audio segments for classification, converting them into numpy arrays for efficient processing.
+
+5. **Label Encoding**: Emotion labels are mapped to numerical indices, enabling effective interpretation during model training.
+
+The following code snippet summarizes these preprocessing steps:
+
+```python
+class DataLoadAudio:
+    def process(self):
+        self.data_files()  # Retrieve audio file paths and labels
+        self.feature_extraction()  # Extract features and labels from audio files
+        return self.feature, self.label_indexes  # Return features and encoded labels
+```
+
+Each modality follows its own distinct preprocessing procedure, beginning with the audio modality. Subsequent modalities will incorporate similar steps tailored to their specific characteristics and requirements.
 
 
 <!-- ROADMAP -->
