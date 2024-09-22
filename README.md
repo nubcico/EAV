@@ -64,17 +64,32 @@ conducted synchronously. This ensures uniform annotations throughout the dataset
 <!-- USAGE EXAMPLES -->
 ## Usage
 
-Run demo:
-   ```sh
-   python demo.py
-   ```
+### Dataset
 
-## Training
+The raw dataset, along with the pre-extracted features, can be accessed and downloaded from Zenodo.
 
-To train the Transfromer for Speech emotion recognition run:
-   ```sh
-   python Dataload_audio.py
-   ```
+### Program Execution Process
+
+After downloading the dataset, you must choose between utilizing the raw dataset or the pre-extracted features, as this decision will determine your subsequent steps.
+If you opt for the raw dataset, only a minor modification is required in the `Dataload_Audio.py` file: adjust the `parent_directory` parameter in the `DataLoadAudio` class to the directory location of the "EAV" folder on your system. Using the raw dataset enables customization of your training and testing data split ratio through the EAVDataSplit class. In our case, we employed a 70/30 split, calculated as `h_idx = 56`. If `x` is your desired training dataset percentage (e.g., x = 70), `h_idx` can be calculated using the formula `h_idx = (x * 80) / 100`.
+If you decide to work with the pre-extracted features, you need to modify the code as follows: comment out the lines currently used for the raw dataset before `aud_list.get_split`, then uncomment the section for the pre-extracted features. Additionally, set the `direct` variable to point to the path containing the "Audio" directory on your system.
+
+```sh
+aud_loader = DataLoadAudio(subject=sub, parent_directory=r'D:\EAV')
+        [data_aud , data_aud_y] = aud_loader.process()
+        aud_list = EAVDataSplit(data_aud, data_aud_y)
+        [tr_x_aud, tr_y_aud, te_x_aud , te_y_aud] = aud_list.get_split(h_idx=56)
+        
+        # direct=r"D:\EAV\Inputs\Audio"
+        # file_name = f"subject_{sub:02d}_aud.pkl"
+        # file_ = os.path.join(direct, file_name)
+
+        # with open(file_, 'rb') as f:
+        #     aud_list = pickle.load(f) 
+        # tr_x_aud, tr_y_aud, te_x_aud , te_y_aud = aud_list    
+            
+        data = [tr_x_aud, tr_y_aud, te_x_aud , te_y_aud]
+```
 
 <!-- ROADMAP -->
 ## Roadmap
