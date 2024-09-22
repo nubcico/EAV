@@ -157,16 +157,18 @@ To execute the program via the command line, run the following commands for each
    python Dataload_audio.py
    ```
 
+Of course! Here’s the revised version without bold text and using numbers:
+
 ### Data Preprocessing
 
 The data preprocessing for audio, EEG, and video modalities is designed to prepare the raw data for emotion classification. Each modality follows its own distinct workflow:
 
-1. **Audio Modality**:
+1. Audio Modality:  
    The `DataLoadAudio` class handles audio data processing:
-   - **Data File Loading**: The `data_files()` method retrieves audio file paths and their corresponding emotion labels.
-   - **Feature Extraction**: The `feature_extraction()` method loads the audio files, resamples them to a target rate, and segments the audio into 5-second clips. Each segment is labeled according to the associated emotion.
-   - **Label Encoding**: Emotion labels are converted to numerical indices for model compatibility.
-   - **Processing Coordination**: The `process()` method orchestrates these steps, returning the extracted features and labels.
+   - Data File Loading: The `data_files()` method retrieves audio file paths and their corresponding emotion labels.
+   - Feature Extraction: The `feature_extraction()` method loads the audio files, resamples them to a target rate, and segments the audio into 5-second clips. Each segment is labeled according to the associated emotion.
+   - Label Encoding: Emotion labels are converted to numerical indices for model compatibility.
+   - Processing Coordination: The `process()` method orchestrates these steps, returning the extracted features and labels.
 
    ```python
    class DataLoadAudio:
@@ -176,13 +178,13 @@ The data preprocessing for audio, EEG, and video modalities is designed to prepa
            return self.feature, self.label_indexes  # Return features and labels
    ```
 
-2. **EEG Modality**:
+2. EEG Modality:  
    The `DataLoadEEG` class manages EEG data processing:
-   - **Data File Loading**: The `data_mat()` method loads EEG data and labels from MAT files.
-   - **Downsampling**: The `downsampling()` method reduces the sampling frequency to a target rate.
-   - **Bandpass Filtering**: The `bandpass()` method applies a bandpass filter to retain frequencies of interest.
-   - **Segmentation**: The `data_div()` method divides the data into smaller segments for analysis.
-   - **Data Preparation**: The `data_prepare()` method coordinates the above steps, returning the processed EEG segments and labels.
+   - Data File Loading: The `data_mat()` method loads EEG data and labels from MAT files.
+   - Downsampling: The `downsampling()` method reduces the sampling frequency to a target rate.
+   - Bandpass Filtering: The `bandpass()` method applies a bandpass filter to retain frequencies of interest.
+   - Segmentation: The `data_div()` method divides the data into smaller segments for analysis.
+   - Data Preparation: The `data_prepare()` method coordinates the above steps, returning the processed EEG segments and labels.
 
    ```python
    class DataLoadEEG:
@@ -194,12 +196,12 @@ The data preprocessing for audio, EEG, and video modalities is designed to prepa
            return self.seg_f_div, self.label_div  # Return filtered segments and labels
    ```
 
-3. **Video Modality**:
+3. Video Modality:  
    The `DataLoadVision` class processes video data:
-   - **Data File Loading**: The `data_files()` method gathers video file paths and emotion labels.
-   - **Face Detection and Frame Extraction**: The `data_load()` method captures frames from each video, using face detection to align faces if enabled. It collects segments of 25 frames, each representing a 5-second interval.
-   - **Label Encoding**: Emotion labels are converted to numerical indices for consistency.
-   - **Data Preparation**: The `process()` method manages these tasks, returning the segmented images and their corresponding labels.
+   - Data File Loading: The `data_files()` method gathers video file paths and emotion labels.
+   - Face Detection and Frame Extraction: The `data_load()` method captures frames from each video, using face detection to align faces if enabled. It collects segments of 25 frames, each representing a 5-second interval.
+   - Label Encoding: Emotion labels are converted to numerical indices for consistency.
+   - Data Preparation: The `process()` method manages these tasks, returning the segmented images and their corresponding labels.
 
    ```python
    class DataLoadVision:
@@ -210,7 +212,6 @@ The data preprocessing for audio, EEG, and video modalities is designed to prepa
    ```
 
 This structured approach ensures that each modality's data is appropriately preprocessed, facilitating effective training and evaluation of the emotion classification model.
-
 
 <!-- ROADMAP -->
 ## Roadmap
