@@ -101,7 +101,7 @@ The same adjustments should be applied for each modality.
 
 #### Selecting the classification model
 
-For the classification of the audio modality, we employ the Audio Spectrogram Transformer (AST) model pretrained on the AudioSet dataset, which we will subsequently fine-tune on our specific dataset, as implemented in the 'Dataload_audio.py' and 'Transformer_torch/Transformer_Audio.py' files.
+For the classification of the audio modality, we employ the Audio Spectrogram Transformer (AST) model pretrained on the AudioSet dataset (the pre-trained model can be downloaded from [Hugging Face](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593)), which we will subsequently fine-tune on our specific dataset, as implemented in the 'Dataload_audio.py' and 'Transformer_torch/Transformer_Audio.py' files.
 
 ```python
 from Transformer_torch import Transformer_Audio
