@@ -124,7 +124,7 @@ class AudioModelTrainer:
         self.model = AutoModelForAudioClassification.from_pretrained(model_path)
 ```
 
-For the video and EEG modalities, the framework allows the choice between Transformer-based and CNN-based models. Specifically, for video, we utilize the Vision Transformer model, which is pretrained on the facial_emotions_image_detection dataset. The following example from the 'Dataload_vision.py' file illustrates both options: 
+For the video and EEG modalities, the framework allows the choice between Transformer-based and CNN-based models. Specifically, for video, we utilize the Vision Transformer model, which is pretrained on the facial_emotions_image_detection dataset(the pre-trained model can be downloaded from [Hugging Face](https://huggingface.co/dima806/facial_emotions_image_detection)). The following example from the 'Dataload_vision.py' file illustrates both options: 
 
 ```python
 # Transformer for Vision
