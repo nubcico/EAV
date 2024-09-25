@@ -81,7 +81,7 @@ Using the raw dataset enables customization of your training and testing data sp
 If you decide to work with the pre-extracted features, you need to modify the code as follows: comment out the lines currently used for the raw dataset before `aud_list.get_split`, then uncomment the section for the pre-extracted features. Additionally, set the `direct` variable to point to the path containing the "Audio" directory on your system.
 
 ```python
-aud_loader = DataLoadAudio(subject=sub, parent_directory=r'D:\EAV')
+        aud_loader = DataLoadAudio(subject=sub, parent_directory=r'D:\EAV')
         [data_aud , data_aud_y] = aud_loader.process()
         aud_list = EAVDataSplit(data_aud, data_aud_y)
         [tr_x_aud, tr_y_aud, te_x_aud , te_y_aud] = aud_list.get_split(h_idx=56)
