@@ -8,7 +8,10 @@ eliciting five distinct emotions: neutral(N), anger(A), happiness(H), sadness(S)
 Participants engage in paired listen/speak sets with recordings of an experienced actor, seated in front of a 27-inch monitor displaying visual stimuli. 
 The experiment is designed as a pseudo-random class-iteration sequence: [A, A, C, C, S, S, H, A, C, H, H, S, S, A, A, C, C, H, H, S]. 
 Throughout the experiment, each participant contributed 200 interactions. This resulted in a cumulative total of 8,400 interactions across all participants.
-Please refer to the paper [TODO: add link] for more details.
+Please refer to the [paper](https://www.nature.com/articles/s41597-024-03838-4)
+ for more details:
+https://www.nature.com/articles/s41597-024-03838-4
+
 ## Domains
 
 ### Video
