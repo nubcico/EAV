@@ -1,223 +1,216 @@
-import torch
-from torch.utils.data import DataLoader, TensorDataset
-from transformers import AutoImageProcessor, AutoModelForImageClassification
-import torch.nn as nn
-import numpy as np
+import os
 import pickle
-import cv2
-from torchvision import transforms
+import numpy as np
+
+import torch
+import torch.nn as nn
 import torch.nn.functional as F
+
+from torch.utils.data import DataLoader, TensorDataset
+from torchvision import transforms
 from torchvision.models import resnet50
 from PIL import Image
 
-transform = transforms.Compose([
+from sklearn.metrics import f1_score
+
+
+IMAGE_TRANSFORM = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
-    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+    transforms.Normalize(
+        mean=(0.5, 0.5, 0.5),
+        std=(0.5, 0.5, 0.5),
+    ),
 ])
 
-
 class VideoModel(nn.Module):
-    def __init__(self, num_labels=5, ratio=1):
+    def __init__(self, num_labels: int = 5, ratio: int = 1):
+        super().__init__()
         self.num_labels = num_labels
-        super(VideoModel, self).__init__()
-        base_model = resnet50(pretrained=True, progress=True)
-        self.base_model = torch.nn.Sequential(*(list(base_model.children())[:-2]))
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.max_pool = nn.AdaptiveMaxPool2d(1)
-        self.shared_layer_one = nn.Linear(2048 // ratio, 2048)
-        self.shared_layer_two = nn.Linear(2048, 2048)
-        self.global_avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.flatten = nn.Flatten()
-        self.fc1 = nn.Linear(2048, 1024)
-        self.fc2 = nn.Linear(1024, self.num_labels)
         self.ratio = ratio
 
+        backbone = resnet50(pretrained=True)
+        self.feature_extractor = nn.Sequential(*list(backbone.children())[:-2])
+
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+
+        self.attn_fc1 = nn.Linear(2048 // ratio, 2048)
+        self.attn_fc2 = nn.Linear(2048, 2048)
+
+        self.global_pool = nn.AdaptiveAvgPool2d(1)
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(2048, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, num_labels),
+        )
+
     def channel_attention(self, x):
-        avg_pool = self.avg_pool(x)
-        max_pool = self.max_pool(x)
-        avg_pool = self.shared_layer_one(avg_pool.view(avg_pool.size(0), -1))
-        max_pool = self.shared_layer_one(max_pool.view(max_pool.size(0), -1))
-        avg_pool = self.shared_layer_two(avg_pool)
-        max_pool = self.shared_layer_two(max_pool)
-        return avg_pool + max_pool
+        avg_feat = self.avg_pool(x).view(x.size(0), -1)
+        max_feat = self.max_pool(x).view(x.size(0), -1)
+
+        avg_feat = self.attn_fc2(self.attn_fc1(avg_feat))
+        max_feat = self.attn_fc2(self.attn_fc1(max_feat))
+
+        return avg_feat + max_feat
 
     def forward(self, x):
-        x = self.base_model(x)
-        #ipdb.set_trace()
-        attention = self.channel_attention(x)
-        x = x * attention.unsqueeze(2).unsqueeze(3)
-        x = self.global_avg_pool(x)
-        x = self.flatten(x)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
-
+        x = self.feature_extractor(x)
+        attn = self.channel_attention(x)
+        x = x * attn.unsqueeze(-1).unsqueeze(-1)
+        x = self.global_pool(x)
+        return self.classifier(x)
 
 
 class ImageClassifierTrainer:
-    def __init__(self, DATA, num_labels=5, lr=5e-5, batch_size=128):
-        self.tr_x, self.tr_y, self.te_x, self.te_y = DATA
-        self.num_labels = num_labels
-        self.initial_lr = lr  # Storing initial learning rate for reference
+    def __init__(
+        self,
+        data,
+        num_labels=5,
+        lr=5e-5,
+        batch_size=128,
+    ):
+        self.tr_x, self.tr_y, self.te_x, self.te_y = data
         self.batch_size = batch_size
-        self.frame_per_sample = np.shape(self.tr_x)[1]  # Assuming tr_x is a numpy array or similar
+        self.num_labels = num_labels
+        self.initial_lr = lr
 
+        self.frames_per_sample = self.tr_x.shape[1]
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        # Initialize model and processor
-        self.processor=transform
-        self.model = VideoModel(self.num_labels)
-        self.model.to(self.device)
-        
+        self.transform = IMAGE_TRANSFORM
+        self.model = VideoModel(num_labels).to(self.device)
+
         self.criterion = nn.CrossEntropyLoss()
-        # Initial optimizer setup with initial learning rate
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.initial_lr)
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=lr)
 
-        # Prepare dataloaders
-        print("Image preprocessing..")
-        self.train_dataloader = self._prepare_dataloader(self.tr_x, self.tr_y)
-        self.test_dataloader = self._prepare_dataloader(self.te_x, self.te_y, shuffle=False)
-        print("Ended..")
-    def calculate_accuracy(self,outputs, labels):
-        #ipdb.set_trace()
-        #probabilities = torch.softmax(outputs, dim=1)
-        _, predicted = torch.max(outputs, 1)
-        correct = (predicted == labels).sum().item()
-        return correct / labels.size(0)
-    def _prepare_dataloader(self, x, y, shuffle=True):
-        processed_x = self.preprocess_images(x)
-        y_repeated = torch.from_numpy(np.repeat(y, self.frame_per_sample)).long()
+        print("Preprocessing images...")
+        self.train_loader = self._build_loader(self.tr_x, self.tr_y, shuffle=True)
+        self.test_loader = self._build_loader(self.te_x, self.te_y, shuffle=False)
+        print("Done.")
 
-        dataset = TensorDataset(processed_x.view(-1, 3, 224, 224), y_repeated)
-        dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=shuffle)
-        del dataset
-        return dataloader
-    def _delete_dataloader(self):
-        del self.train_dataloader
-        del self.test_dataloader
+    def _build_loader(self, x, y, shuffle=True):
+        x_processed = self._preprocess_images(x)
+        y_expanded = torch.from_numpy(
+            np.repeat(y, self.frames_per_sample)
+        ).long()
 
-    def preprocess_images(self, image_list):
-        pixel_values_list = []
-        for img_set in image_list:
-            for img in img_set:
-                pil_img = Image.fromarray(img)
-                processed = self.processor(pil_img)
-                #ipdb.set_trace()
-                pixel_values = processed.squeeze() #check if the shape is (_, 224, 224, 3)
-                pixel_values_list.append(pixel_values)
-        return torch.stack(pixel_values_list).to(self.device)
+        dataset = TensorDataset(
+            x_processed.view(-1, 3, 224, 224),
+            y_expanded,
+        )
+
+        return DataLoader(dataset, batch_size=self.batch_size, shuffle=shuffle)
+
+    def _preprocess_images(self, images):
+        processed = []
+        for frame_set in images:
+            for frame in frame_set:
+                img = Image.fromarray(frame)
+                processed.append(self.transform(img))
+        return torch.stack(processed).to(self.device)
+
+    def accuracy(outputs, labels):
+        preds = outputs.argmax(dim=1)
+        return (preds == labels).float().mean().item()
 
     def train(self, epochs=3, lr=None, freeze=True):
-        # Update learning rate if provided, otherwise use the initial learning rate
         lr = lr if lr is not None else self.initial_lr
-        for param_group in self.optimizer.param_groups:
-            param_group['lr'] = lr
+        for g in self.optimizer.param_groups:
+            g["lr"] = lr
 
-        # Freeze or unfreeze model parameters based on the freeze flag
-        for param in self.model.base_model.parameters():
-            param.requires_grad = not freeze
+        for p in self.model.feature_extractor.parameters():
+            p.requires_grad = not freeze
 
-        print(f"Training with {'frozen' if freeze else 'unfrozen'} feature layers at lr={lr}")
-
-        # Wrap the model with DataParallel
-        #if torch.cuda.device_count() > 1:
-        #    self.model = nn.DataParallel(self.model)
+        print(f"Training ({'frozen' if freeze else 'unfrozen'}) | lr={lr}")
 
         for epoch in range(epochs):
-            # Training loop
             self.model.train()
-            total_accuracy_train = 0
-            outputs_batch = []
-            for batch in self.train_dataloader:
-                pixel_values, labels = [b.to(self.device) for b in batch]
+            train_acc = 0.0
+
+            for x, y in self.train_loader:
+                x, y = x.to(self.device), y.to(self.device)
+
                 self.optimizer.zero_grad()
-                #ipdb.set_trace()
-                outputs = self.model(pixel_values)
-                loss=self.criterion(outputs, labels)
+                out = self.model(x)
+                loss = self.criterion(out, y)
                 loss.backward()
                 self.optimizer.step()
-                
-                accuracy_train = self.calculate_accuracy(outputs, labels)
-                total_accuracy_train += accuracy_train
-            # Evaluation loop
-            avg_accuracy_train = total_accuracy_train / len(self.train_dataloader)
+
+                train_acc += self.accuracy(out, y)
+
+            train_acc /= len(self.train_loader)
+
+
             self.model.eval()
-            total_accuracy = 0
+            test_acc = 0.0
+            outputs_all = []
+
             with torch.no_grad():
-                for batch in self.test_dataloader:
-                    pixel_values, labels = [b.to(self.device) for b in batch]
-                    outputs = self.model(pixel_values)
-                   
+                for x, y in self.test_loader:
+                    x, y = x.to(self.device), y.to(self.device)
+                    out = self.model(x)
+                    test_acc += self.accuracy(out, y)
+                    outputs_all.append(out.cpu().numpy())
 
-                    accuracy = self.calculate_accuracy(outputs, labels)
-                    total_accuracy += accuracy
-                    
-                    logits = outputs.logits if hasattr(outputs, 'logits') else outputs
-                    logits_cpu = logits.detach().cpu().numpy()
-                    outputs_batch.append(logits_cpu)
+            test_acc /= len(self.test_loader)
 
-            if epoch == epochs-1 and not freeze: # we saved test prediction only at last epoch, and finetuning
-                self.outputs_test = np.concatenate(outputs_batch, axis=0)
-                        
-            outputs_batch = []
-            avg_accuracy = total_accuracy / len(self.test_dataloader)
-            print(f"Epoch {epoch + 1}, Train Accuracy: {avg_accuracy_train * 100:.2f}%, Test Accuracy: {avg_accuracy * 100:.2f}%")
-            
+            if epoch == epochs - 1 and not freeze:
+                self.outputs_test = np.concatenate(outputs_all, axis=0)
 
-# Example usage
-from sklearn.metrics import f1_score
-if __name__ == '__main__':
+            print(
+                f"Epoch {epoch + 1} | "
+                f"Train Acc: {train_acc * 100:.2f}% | "
+                f"Test Acc: {test_acc * 100:.2f}%"
+            )
 
-    import pickle
-    import os
-
-    test_acc_all = list()
-    test_f1_all = list()
-    for idx in range(1, 2):
-        test_acc = []
+    def clear_loaders(self):
+        del self.train_loader
+        del self.test_loader
         torch.cuda.empty_cache()
 
-        direct=r"C:\Users\minho.lee\Dropbox\Projects\EAV\Feature_vision"
-        file_name = f"subject_{idx:02d}_vis.pkl"
-        file_ = os.path.join(direct, file_name)
 
-        with open(file_, 'rb') as f:
-            vis_list2 = pickle.load(f)
-        tr_x_vis, tr_y_vis, te_x_vis, te_y_vis = vis_list2
+if __name__ == "__main__":
+    test_acc_all = []
+    test_f1_all = []
 
-        mod_path = r'C:\Users\user.DESKTOP-HI4HHBR\Downloads\facial_emotions_image_detection (1)'
-        data = [tr_x_vis, tr_y_vis, te_x_vis, te_y_vis]
-        trainer = ImageClassifierTrainer(data,num_labels=5, lr=5e-5, batch_size=32)
+    DATA_DIR = r"C:\Users\minho.lee\Dropbox\Projects\EAV\Feature_vision"
+
+    for subject_id in range(1, 2):
+        print(f"\nSubject {subject_id:02d}")
+
+        file_path = os.path.join(
+            DATA_DIR,
+            f"subject_{subject_id:02d}_vis.pkl",
+        )
+
+        with open(file_path, "rb") as f:
+            tr_x, tr_y, te_x, te_y = pickle.load(f)
+
+        trainer = ImageClassifierTrainer(
+            data=[tr_x, tr_y, te_x, te_y],
+            num_labels=5,
+            lr=5e-5,
+            batch_size=32,
+        )
 
         trainer.train(epochs=3, lr=5e-4, freeze=True)
         trainer.train(epochs=3, lr=5e-6, freeze=False)
-        trainer._delete_dataloader()
-        test_acc.append(trainer.outputs_test)
+        trainer.clear_loaders()
 
-        #ipdb.set_trace()
-        f = open("accuracy_cnn.txt", "a")
-        f.write("\n Subject ")
-        f.write(str(idx))
-        aa = test_acc[0]
-        aa2 = np.reshape(aa, (200, 25, 5), 'C')
-        aa3 = np.mean(aa2, 1)
-        out1 = np.argmax(aa3, axis = 1)
-        accuracy = np.mean(out1 == te_y_vis)
-        test_acc_all.append(accuracy)
-        f.write("\n")
-        f.write(f"The accuracy of the {idx}-subject is ")
-        f.write(str(accuracy))
-        print(f"The accuracy of the {idx}-subject is ")
-        print(accuracy)
-        f1 = f1_score(te_y_vis, out1, average='weighted')
+        logits = trainer.outputs_test
+        logits = logits.reshape(200, 25, 5).mean(axis=1)
+
+        preds = np.argmax(logits, axis=1)
+        acc = np.mean(preds == te_y)
+        f1 = f1_score(te_y, preds, average="weighted")
+
+        test_acc_all.append(acc)
         test_f1_all.append(f1)
-        f.write("\n")
-        f.write(f"The f1 score of the {idx}-subject is ")
-        f.write(str(f1))
-        f.close()
-        print(f"The f1 score of the {idx}-subject is ")
-        print(f1)
 
-    test_acc_all = np.reshape(np.array(test_acc_all), (42, 1))
-    test_f1_all = np.reshape(np.array(test_f1_all), (42, 1))
+        print(f"Accuracy: {acc:.4f}")
+        print(f"F1-score:  {f1:.4f}")
+
+    test_acc_all = np.array(test_acc_all).reshape(-1, 1)
+    test_f1_all = np.array(test_f1_all).reshape(-1, 1)
