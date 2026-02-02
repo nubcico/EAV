@@ -1,237 +1,250 @@
-import numpy as np
+# =========================
+# Imports
+# =========================
+import os
+import pickle
+import warnings
+
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, TensorDataset, random_split
-import os
-class PositionalEncoding(nn.Module):
-    """Positional encoding.
-    https://d2l.ai/chapter_attention-mechanisms-and-transformers/self-attention-and-positional-encoding.html
-    """
-    def __init__(self, num_hiddens, dropout, max_len=1000):
+import torch.optim as optim
+
+from torch.utils.data import DataLoader, TensorDataset
+
+warnings.filterwarnings("ignore")
+
+class PatchEmbedding(nn.Module):
+    def __init__(self, embed_dim: int, num_heads: int, qkv_dim: int):
         super().__init__()
-        self.dropout = nn.Dropout(dropout)
-        # Create a long enough P
-        self.p = torch.zeros((1, max_len, num_hiddens))
-        x = torch.arange(max_len, dtype=torch.float32).reshape(
-            -1, 1) / torch.pow(10000, torch.arange(
-            0, num_hiddens, 2, dtype=torch.float32) / num_hiddens)
-        self.p[:, :, 0::2] = torch.sin(x)
-        self.p[:, :, 1::2] = torch.cos(x)
+        assert embed_dim % num_heads == 0, "embed_dim must be divisible by num_heads"
 
-    def forward(self, x): # note we carefully add the positional encoding, omitted
-        x = x #+ self.p[:, :x.shape[1], :].to(x.device)
-        return self.dropout(x)
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.qkv_dim = qkv_dim
 
-class TransformerBlock(nn.Module):
-    def __init__(self, embed_dim, num_heads, dim_feedforward, dropout=0.1):
-        super().__init__()
-
-        self.attention = nn.MultiheadAttention(
-            embed_dim,
-            num_heads,
-            dropout,
-            batch_first=True,
+        # One linear projection per temporal filter
+        self.value_proj = nn.ModuleList(
+            [nn.Linear(30, 1, bias=False) for _ in range(40)]
         )
-        self.mlp = nn.Sequential(
-            nn.Linear(embed_dim, dim_feedforward),
-            nn.ReLU(True),
-            nn.Dropout(dropout),
-            nn.Linear(dim_feedforward, embed_dim),
-        )
-
-        self.layernorm0 = nn.LayerNorm(embed_dim)
-        self.layernorm1 = nn.LayerNorm(embed_dim)
-
-        self.dropout = dropout
 
     def forward(self, x):
-        y, att = self.attention(x, x, x)
-        y = F.dropout(y, self.dropout, training=self.training)
-        x = self.layernorm0(x + y)
-        y = self.mlp(x)
-        y = F.dropout(y, self.dropout, training=self.training)
-        x = self.layernorm1(x + y)
-        return x
+        values = []
+        for i in range(40):
+            x_i = x[:, i].permute(0, 2, 1)  # (B, T, 30)
+            v = self.value_proj[i](x_i)    # (B, T, 1)
+            values.append(v)
 
-class EEGClassificationModel(nn.Module):
-    def __init__(self, eeg_channel, dropout=0.1):
+        return torch.cat(values, dim=-1)  # (B, T, 40)
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self, embed_dim: int, num_heads: int, qkv_dim: int):
+        super().__init__()
+        assert embed_dim % num_heads == 0
+
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+
+        self.W_q = nn.Linear(self.head_dim, qkv_dim, bias=False)
+        self.W_k = nn.Linear(self.head_dim, qkv_dim, bias=False)
+        self.W_v = nn.Linear(self.head_dim, qkv_dim, bias=False)
+
+    def forward(self, x):
+        B, T, _ = x.shape
+        x = x.view(B, T, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+
+        outputs = []
+        residuals = []
+
+        for h in range(self.num_heads):
+            x_h = x[:, h]  # (B, T, head_dim)
+
+            Q = self.W_q(x_h)
+            K = self.W_k(x_h)
+            V = self.W_v(x_h)
+
+            attn = torch.matmul(Q, K.transpose(-1, -2)) / (self.head_dim ** 0.5)
+            attn = F.softmax(attn, dim=-1)
+
+            outputs.append(torch.matmul(attn, V))
+            residuals.append(V)
+
+        out = torch.cat(outputs, dim=-1)
+        res = torch.cat(residuals, dim=-1)
+
+        return out + res
+
+
+class FeedForwardBlock(nn.Module):
+    def __init__(self, embed_dim: int, expansion: int = 4, drop_p: float = 0.5):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim * expansion),
+            nn.ReLU(),
+            nn.Dropout(drop_p),
+            nn.Linear(embed_dim * expansion, embed_dim),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+
+class TransformerLayer(nn.Module):
+    def __init__(self, embed_dim: int, num_heads: int, qkv_dim: int, drop_p: float = 0.5):
         super().__init__()
 
-        self.conv = nn.Sequential(
-            nn.Conv1d(
-                eeg_channel, eeg_channel, 11, 1, padding=5, bias=False
-            ),
-            nn.BatchNorm1d(eeg_channel),
-            nn.ReLU(True),
-            nn.Dropout1d(dropout),
-            nn.Conv1d(
-                eeg_channel, eeg_channel * 2, 11, 1, padding=5, bias=False
-            ),
-            nn.BatchNorm1d(eeg_channel * 2),
+        self.attn = MultiHeadAttention(embed_dim, num_heads, qkv_dim)
+        self.ffn = FeedForwardBlock(embed_dim, drop_p=drop_p)
+
+        self.norm1 = nn.LayerNorm(embed_dim)
+        self.norm2 = nn.LayerNorm(embed_dim)
+        self.dropout = nn.Dropout(drop_p)
+
+    def forward(self, x):
+        x = x + self.dropout(self.norm1(self.attn(x)))
+        x = x + self.dropout(self.norm2(self.ffn(x)))
+        return x
+
+
+class ShallowConvNet(nn.Module):
+    def __init__(
+        self,
+        nb_classes: int,
+        chans: int = 30,
+        samples: int = 500,
+        dropout: float = 0.5,
+        num_layers: int = 12,
+    ):
+        super().__init__()
+
+        self.conv = nn.Conv2d(1, 40, (1, 13), bias=False)
+        self.pool = nn.AvgPool2d((1, 35), stride=(1, 7))
+        self.dropout = nn.Dropout(dropout)
+        self.bn = nn.BatchNorm2d(40)
+
+        self.embedding = PatchEmbedding(embed_dim=40, num_heads=1, qkv_dim=40)
+        self.transformer = nn.ModuleList(
+            [TransformerLayer(40, 1, 40, dropout) for _ in range(num_layers)]
         )
 
-        self.transformer = nn.Sequential(
-            PositionalEncoding(eeg_channel * 2, dropout),
-            TransformerBlock(eeg_channel * 2, 4, eeg_channel // 8, dropout),
-            TransformerBlock(eeg_channel * 2, 4, eeg_channel // 8, dropout),
-            TransformerBlock(eeg_channel * 2, 4, eeg_channel // 8, dropout),
-            TransformerBlock(eeg_channel * 2, 4, eeg_channel // 8, dropout),
-            TransformerBlock(eeg_channel * 2, 4, eeg_channel // 8, dropout),
-            TransformerBlock(eeg_channel * 2, 4, eeg_channel // 8, dropout),
-        )
-
-        self.mlp = nn.Sequential(
-            nn.Linear(eeg_channel * 2, eeg_channel // 2),
-            nn.ReLU(True),
-            nn.Dropout(dropout),
-            nn.Linear(eeg_channel // 2, 5),
-        )
+        self.fc = nn.Linear(2600, nb_classes, bias=False)
 
     def forward(self, x):
         x = self.conv(x)
-        x = x.permute(0, 2, 1)
-        x = self.transformer(x)
-        x = x.permute(0, 2, 1)
-        x = x.mean(dim=-1)
-        x = self.mlp(x)
-        return x
 
-class EEGModelTrainer:
-    def __init__(self, DATA, model = [], sub = '', lr=0.001, batch_size = 64):
-        if model:
-            self.model = model
-        else:
-            self.model = EEGClassificationModel(eeg_channel=30)
+        v = self.embedding(x)
+        for layer in self.transformer:
+            v = layer(v)
 
-        self.tr, self.tr_y, self.te, self.te_y = DATA
-        self.batch_size = batch_size
-        self.test_acc = float()
+        x = v.permute(0, 2, 1).unsqueeze(2)
+        x = self.bn(x)
 
-        self.train_dataloader = self._prepare_dataloader(self.tr, self.tr_y, shuffle=True)
-        self.test_dataloader = self._prepare_dataloader(self.te, self.te_y, shuffle=False)
+        x = torch.square(x)
+        x = self.pool(x)
+        x = torch.log(torch.clamp(x, 1e-7, 1e4))
 
-        self.initial_lr = lr
+        x = x.squeeze(2)
+        x = self.dropout(x)
+        x = torch.flatten(x, 1)
+
+        return F.softmax(self.fc(x), dim=1)
+
+
+class TrainerUni:
+    def __init__(
+        self,
+        model,
+        data,
+        lr=1e-3,
+        batch_size=32,
+        epochs=10,
+        subject=0,
+        device=None,
+    ):
+        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        tr_x, tr_y, te_x, te_y = data
+        self.train_loader = self._loader(tr_x, tr_y, batch_size, True)
+        self.test_loader = self._loader(te_x, te_y, batch_size, False)
+
+        self.model = model.to(self.device)
         self.criterion = nn.CrossEntropyLoss()
-        self.optimizer = optim.Adam(self.model.parameters(), lr=self.initial_lr)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
 
-        # Automatically use GPU if available, else fallback to CPU
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.model.to(self.device)
-        print(self.device)
+        self.epochs = epochs
+        self.subject = subject
 
-    def _prepare_dataloader(self, x, y, shuffle=False):
-        dataset = TensorDataset(torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.long))
-        dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=shuffle)
-        return dataloader
+    def _loader(x, y, batch_size, shuffle):
+        return DataLoader(
+            TensorDataset(x, y),
+            batch_size=batch_size,
+            shuffle=shuffle,
+        )
 
-    def evaluate(self):
-        self.model.eval()
-        correct = 0
-        total = 0
-        predictions = []
-        accuracies = []
-
-        with torch.no_grad():
-            for inputs, labels in self.test_dataloader:
-                inputs = inputs.to(self.device)
-                labels = labels.to(self.device)
-                outputs = self.model(inputs)
-                _, predicted = torch.max(outputs.data, 1)
-                total += labels.size(0)
-                correct += (predicted == labels).sum().item()
-                predictions.extend(predicted.cpu().numpy())
-                accuracies.extend((predicted == labels).cpu().numpy())
-        accuracy = correct / total
-        print(f'Test Accuracy: {accuracy:.2f}')
-        return accuracy, predictions
-
-    def train(self, epochs=25, lr=None, freeze=False):
-        lr = lr if lr is not None else self.initial_lr
-        if lr is not None:
-            for param_group in self.optimizer.param_groups:
-                param_group['lr'] = lr
-
-        if isinstance(self.model, nn.DataParallel):
-            self.model = self.model.module
-        # Freeze or unfreeze model parameters based on the freeze flag
-        # we train the eeg model from the scratch
-        for param in self.model.parameters():
-            param.requires_grad = not freeze
-
-        # Wrap the model with DataParallel
-        if torch.cuda.device_count() > 1:
-            self.model = nn.DataParallel(self.model)
-            print("GPU:", torch.cuda.device_count())
-
-        for epoch in range(epochs):
-            # Variables to store performance metrics
-            running_loss = 0.0
-            correct_predictions = 0
-            total_predictions = 0
-
-            # Training phase
+    def train(self):
+        for epoch in range(self.epochs):
             self.model.train()
-            for inputs, labels in self.train_dataloader:
-                inputs, labels = inputs.to(self.device), labels.to(self.device)
+
+            for x, y in self.train_loader:
+                x, y = x.to(self.device), y.to(self.device)
+
+                out = self.model(x)
+                loss = self.criterion(out, y)
+
                 self.optimizer.zero_grad()
-                outputs = self.model(inputs)
-                loss = self.criterion(outputs, labels)
                 loss.backward()
                 self.optimizer.step()
-                running_loss += loss.item() * inputs.size(0)
 
-                _, predicted = torch.max(outputs.data, 1)
-                total_predictions += labels.size(0)
-                correct_predictions += (predicted == labels).sum().item()
+                with torch.no_grad():
+                    self.model.fc.weight.data = torch.renorm(
+                        self.model.fc.weight.data, p=2, dim=0, maxnorm=0.5
+                    )
 
-            train_loss = running_loss / len(self.train_dataloader.dataset)
-            train_accuracy = correct_predictions / total_predictions
+            acc = self.validate()
+            if epoch == self.epochs - 1:
+                with open("eeg_results_new_shallow_.txt", "a") as f:
+                    f.write(f"Subject {self.subject} | Accuracy: {acc:.4f}\n")
 
-            # Validation phase
-            self.model.eval()
-            running_val_loss = 0.0
-            val_correct_predictions = 0
-            val_total_predictions = 0
-            with torch.no_grad():
-                for inputs, labels in self.test_dataloader:
-                    inputs, labels = inputs.to(self.device), labels.to(self.device)
-                    outputs = self.model(inputs)
-                    val_loss = self.criterion(outputs, labels)
-                    running_val_loss += val_loss.item() * inputs.size(0)
+    def validate(self):
+        self.model.eval()
+        correct, total = 0, 0
 
-                    _, predicted = torch.max(outputs.data, 1)
-                    val_total_predictions += labels.size(0)
-                    val_correct_predictions += (predicted == labels).sum().item()
+        with torch.no_grad():
+            for x, y in self.test_loader:
+                x, y = x.to(self.device), y.to(self.device)
+                preds = self.model(x).argmax(dim=1)
+                correct += (preds == y).sum().item()
+                total += y.size(0)
 
-            val_loss = running_val_loss / len(self.test_dataloader.dataset)
-            val_accuracy = val_correct_predictions / val_total_predictions
-
-            print(f'Epoch {epoch + 1}/{epochs}, Train Loss: {train_loss:.4f}, Train Accuracy: {train_accuracy:.4f}, Val Loss: {val_loss:.4f}, Val Accuracy: {val_accuracy:.4f}')
-        self.test_acc = val_accuracy
-        return self.model
-
+        acc = correct / total
+        print(f"Validation Accuracy: {acc:.4f}")
+        return acc
 
 if __name__ == "__main__":
-    # Toy dataste
-    data = torch.randn(1000, 30, 500)
-    labels = torch.randint(0, 5, (1000,))
+    data_path = r"D:\input images\EEG"
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    dataset = TensorDataset(data, labels)
+    for subject in range(1, 2):
+        file = os.path.join(data_path, f"subject_{subject:02d}_eeg.pkl")
+        if not os.path.isfile(file):
+            continue
 
-    train_size = int(0.5 * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+        with open(file, "rb") as f:
+            tr_x, tr_y, te_x, te_y = pickle.load(f)
 
-    # Create DataLoaders for training and validation sets
-    batch_size = 128
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size)
+        tr_x = torch.from_numpy(tr_x).float().unsqueeze(1)
+        te_x = torch.from_numpy(te_x).float().unsqueeze(1)
+        tr_y = torch.tensor(tr_y, dtype=torch.long)
+        te_y = torch.tensor(te_y, dtype=torch.long)
 
-    model = EEGClassificationModel(eeg_channel=30)  # Example: 64 EEG channels
-    trainer = EEGModelTrainer(model, train_dataloader, val_dataloader)
-    trainer.train_model(num_epochs=25)
+        model = ShallowConvNet(nb_classes=5)
+        trainer = TrainerUni(
+            model,
+            data=[tr_x, tr_y, te_x, te_y],
+            epochs=485,
+            subject=subject,
+            device=device,
+        )
 
-
-
+        trainer.train()
