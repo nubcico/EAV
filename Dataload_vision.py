@@ -58,7 +58,7 @@ class DataLoadVision:
                             break
                         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                         # (30 framerate * 20s) * 100 Speaking, Select every 6th frame from the first 600 frames
-                        # face detection, we converted it into 0-255 again from the [-1 - 1] tensor, you can directly return the tensor
+                        # face detection, we converted it into 0-255 again from the [-1, 1] tensor, you can directly return the tensor
                         if (frame_index - 1) % 6 == 0 and frame_index <= 600:
                             if self.face_detection:
                                 with torch.no_grad():
