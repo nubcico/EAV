@@ -114,7 +114,5 @@ if __name__ == "__main__":
         Trainer.train(epochs=15, lr=5e-6, freeze=False)
         test_acc.append(Trainer.outputs_test)
 
-        ## Add CNN - audio here, refer to the file Dataload_vision.py
-
 
 
