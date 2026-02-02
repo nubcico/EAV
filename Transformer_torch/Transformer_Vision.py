@@ -102,7 +102,7 @@ class ImageClassifierTrainer:
 
                 print(f'batch ({batch_idx}/{total_batches})')
 
-            # Evaluation loop
+            
             self.model.eval()
             total_accuracy = 0
             outputs_batch = []
@@ -187,21 +187,4 @@ if __name__ == '__main__':
 
     test_acc_all = np.reshape(np.array(test_acc_all), (42, 1))
     test_f1_all = np.reshape(np.array(test_f1_all), (42, 1))
-    '''
-    # Creating toy data for training
-    import numpy as np
 
-    tr_x = np.random.randint(0, 256, (128, 25, 224, 224, 3))  # Training images
-    te_x = np.random.randint(0, 256, (128, 25, 224, 224, 3))  # Test images
-
-    tr_y = np.random.randint(0, 5, (128,))  # Training labels
-    te_y = np.random.randint(0, 5, (128,))  # Test labels
-
-    data = [tr_x, tr_y, te_x, te_y]
-    trainer = ImageClassifierTrainer(data,
-                                     model_path='C:/Users/minho.lee/Dropbox/zEmotion_fusion/pythonProject/facial_emotions_image_detection',
-                                     num_labels=5, lr=5e-5, batch_size=128)
-
-    trainer.train(epochs=3, lr=5e-5, freeze=True)
-    trainer.train(epochs=3, lr=5e-6, freeze=False)
-    '''
