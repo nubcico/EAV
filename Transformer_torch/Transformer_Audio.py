@@ -26,7 +26,6 @@ class AudioModelTrainer:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = self.model.to(self.device)
 
-        # Setup optimizer and loss function
         self.initial_lr = lr
         self.optimizer = optim.AdamW(self.model.parameters(), lr=self.initial_lr)
         self.loss_fn = nn.CrossEntropyLoss()
