@@ -83,7 +83,6 @@ class ImageClassifierTrainer:
             self.model = nn.DataParallel(self.model)
 
         for epoch in range(epochs):
-            # Training loop
             self.model.train()
             total_batches = len(self.train_dataloader)
             for batch_idx, batch in enumerate(self.train_dataloader, start=1):
