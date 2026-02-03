@@ -1,259 +1,275 @@
+"""
+EEG Data Processing and Classification Pipeline
+===============================================
+This script handles loading, preprocessing (downsampling, bandpass filtering),
+and splitting of EEG data. It also includes examples of how to train
+Transformer and CNN models using PyTorch and TensorFlow.
+
+Dependencies:
+    - scipy
+    - numpy
+    - sklearn
+    - torch (optional)
+    - tensorflow (optional)
+    - EAV_datasplit (local module)
+"""
 import os
+import pickle
+import numpy as np
 import scipy.io
-from scipy.signal import butter
 from scipy import signal
+from scipy.signal import butter
+from sklearn.metrics import accuracy_score, confusion_matrix
 
-from EAV_datasplit import *
+# Local imports
+from EAV_datasplit import EAVDataSplit
 
-'''
-NEU_SPE = 108, 0
-S_SPE = 1
-A_SPE = 2
-H_SPE = 3
-R_SPE = 4  #####
-'''
+# --- Constants ---
+# NEU_SPE = 108, 0
+# S_SPE = 1
+# A_SPE = 2
+# H_SPE = 3
+# R_SPE = 4
+SELECTED_CLASSES = [1, 3, 5, 7, 9]  # Classes corresponding to listening tasks
 
 class DataLoadEEG:
-    def __init__(self, subject='all', band=[0.3, 50], fs_orig=500, fs_target=100,
-                 parent_directory=r'C:\Users\minho.lee\Dropbox\Datasets\EAV'):
+    """
+    A class to load and preprocess EEG data for a specific subject.
+    """
+    def __init__(self, subject=1, band=[0.3, 50], fs_orig=500, fs_target=100,
+                 parent_directory='./Datasets/EAV'):
         self.subject = subject
         self.band = band
-        self.parent_directory = parent_directory
         self.fs_orig = fs_orig
         self.fs_target = fs_target
-        self.seg = []
-        self.label = []
-        self.label_div = []
-        self.seg_f = []
-        self.seg_f_div = []
+        self.parent_directory = parent_directory
 
-    def data_mat(self):
-        subject = f'subject{self.subject:02d}'
-        eeg_folder = os.path.join(self.parent_directory, subject, 'EEG')
-        eeg_file_name = subject.rstrip('__') + '_eeg.mat'
-        eeg_file_path = os.path.join(eeg_folder, eeg_file_name)
+        # Placeholders for data
+        self.seg = None  # Raw segmented data
+        self.label = None  # Raw labels
+        self.seg_f = None  # Filtered data
+        self.seg_f_div = None  # Divided/processed data
+        self.label_div = None  # Processed labels
 
-        label_file_name = subject.rstrip('__') + '_eeg_label.mat'
-        label_file_path = os.path.join(eeg_folder, label_file_name)
+    def load_mat_data(self):
+        """Loads .mat files for EEG signal and labels."""
+        subject_str = f'subject{self.subject:02d}'
+        eeg_folder = os.path.join(self.parent_directory, subject_str, 'EEG')
 
-        if os.path.exists(eeg_file_path):
-            mat = scipy.io.loadmat(eeg_file_path)
+        # Construct file paths
+        # Handle potential naming inconsistencies (double underscores)
+        base_name = subject_str.rstrip('__')
+        eeg_file_path = os.path.join(eeg_folder, base_name + '_eeg.mat')
+        label_file_path = os.path.join(eeg_folder, base_name + '_eeg_label.mat')
+
+        if not os.path.exists(eeg_file_path):
+            print(f'[Error] EEG data not found for {subject_str}')
+            return
+
+        # Load EEG signal
+        mat = scipy.io.loadmat(eeg_file_path)
+        if 'seg1' in mat:
             cnt_ = np.array(mat.get('seg1'))
-            if np.ndim(cnt_) == 3:
-                cnt_ = np.array(mat.get('seg1'))
-            else:
-                cnt_ = np.array(mat.get('seg'))
-
-            mat_y = scipy.io.loadmat(label_file_path)
-            label = np.array(mat_y.get('label'))
-
-            self.seg = np.transpose(cnt_, [1, 0, 2])  # (10000, 30, 200) -> (30ch, 10000t, 200trial)
-            self.label = label
-
-            print(f'Loaded EEG data for {subject}')
         else:
-            print(f'EEG data not found for {subject}')
+            cnt_ = np.array(mat.get('seg'))
 
-    def downsampling(self, fs_target=100):
-        [ch, t, tri] = self.seg.shape
-        factor = fs_target / self.fs_orig
+        # Load Labels
+        mat_y = scipy.io.loadmat(label_file_path)
+        self.label = np.array(mat_y.get('label'))
+
+        # Transpose to (Channels, Time, Trials)
+        # Original: (10000, 30, 200) -> Target: (30, 10000, 200)
+        self.seg = np.transpose(cnt_, [1, 0, 2])
+        print(f'[Info] Loaded EEG data for {subject_str}')
+
+    def downsampling(self):
+        """Downsamples the EEG data from fs_orig to fs_target."""
+        if self.seg is None:
+            return
+
+        ch, t, tri = self.seg.shape
+        factor = self.fs_target / self.fs_orig
+
+        # Reshape for efficient processing: (Channels, Time * Trials)
         tm = np.reshape(self.seg, [ch, t * tri], order='F')
-        tm2 = signal.resample_poly(tm, up=1, down=int(self.fs_orig / fs_target), axis=1)
-        self.seg = np.reshape(tm2, [ch, int(t * factor), tri], order='F')
 
-    def bandpass(self):
-        [ch, t, tri] = self.seg.shape
+        # Resample
+        down_factor = int(self.fs_orig / self.fs_target)
+        tm2 = signal.resample_poly(tm, up=1, down=down_factor, axis=1)
+
+        # Reshape back: (Channels, New_Time, Trials)
+        new_time = int(t * factor)
+        self.seg = np.reshape(tm2, [ch, new_time, tri], order='F')
+
+    def bandpass_filter(self):
+        """Applies a Butterworth bandpass filter."""
+        if self.seg is None:
+            return
+
+        ch, t, tri = self.seg.shape
         dat = np.reshape(self.seg, [ch, t * tri], order='F')
-        # bandpass after the downsample  -> fs_target
+
+        # Create SOS filter
         sos = butter(5, self.band, btype='bandpass', fs=self.fs_target, output='sos')
-        fdat = list()
-        for i in range(np.size(dat, 0)):
+
+        # Apply filter channel by channel
+        fdat = []
+        for i in range(ch):
             tm = signal.sosfilt(sos, dat[i, :])
             fdat.append(tm)
+
         self.seg_f = np.array(fdat).reshape((ch, t, tri), order='F')
 
-    def data_div(self):
-        # Here 2000 (20seconds) are divided into 4 splits
-        [ch, t, tri] = self.seg_f.shape
+    def segment_and_select_classes(self):
+        """
+        Divides the continuous data into smaller windows and selects specific classes.
+        Assumes original trial length is 20s (2000 samples @ 100Hz), split into 4 chunks.
+        """
+        if self.seg_f is None:
+            return
+
+        # Reshape: Split 20s trials into 4 x 5s chunks
+        # (30, 2000, 200) -> (30, 500, 4, 200)
         tm1 = self.seg_f.reshape((30, 500, 4, 200), order='F')
+
+        # Flatten chunks: (30, 500, 800)
         self.seg_f_div = tm1.reshape((30, 500, 4 * 200), order='F')
+
+        # Repeat labels for the new chunks
         self.label_div = np.repeat(self.label, repeats=4, axis=1)
 
-        # Here we only select the listening classes
-        selected_classes = [1, 3, 5, 7, 9]
-        label = self.label_div[selected_classes, :]
-        selected_indices = np.isin(np.argmax(self.label_div, axis=0), selected_classes)
-        label = label[:, selected_indices]
-        x = self.seg_f_div[:, :, selected_indices]
+        # Filter for selected listening classes only
+        selected_mask = np.isin(np.argmax(self.label_div, axis=0), SELECTED_CLASSES)
 
+        label_subset = self.label_div[:, selected_mask]
+        data_subset = self.seg_f_div[:, :, selected_mask]
 
-        self.seg_f_div = np.transpose(x, (2, 0, 1))  # (30, 500, 400) -> (400, 30, 500)
-        class_indices = np.argmax(label, axis=0)
+        # Transpose data for model input: (Trials, Channels, Time)
+        # (30, 500, 400) -> (400, 30, 500)
+        self.seg_f_div = np.transpose(data_subset, (2, 0, 1))
 
-        #self.label_div = label
-        self.label_div = class_indices
+        # Convert one-hot labels to class indices
+        self.label_div = np.argmax(label_subset, axis=0)
 
-    def data_split(self):
-        selected_classes = [1, 3, 5, 7, 9]  # only listening classes
-        label = self.label_div[selected_classes, :]
-
-        selected_indices = np.isin(np.argmax(self.label_div, axis=0), selected_classes)
-        label = label[:, selected_indices]
-
-        x = self.seg_f_div[:, :, selected_indices]
-        x_train_list = []
-        x_test_list = []
-        y_train_list = []
-        y_test_list = []
-
-        for i in range(5):  # Looping over each class
-            class_indices = np.where(label.T[:, i] == 1)[0]  # Find indices where current class label is 1
-            midpoint = len(class_indices) // 2  # Calculate the midpoint for 50% split
-
-            # Split data based on found indices
-            x_train_list.append(x[:, :, class_indices[:midpoint]])
-            x_test_list.append(x[:, :, class_indices[midpoint:]])
-
-            y_train_list.append(label.T[class_indices[:midpoint]])
-            y_test_list.append(label.T[class_indices[midpoint:]])
-
-        # Convert lists to numpy arrays
-        x_train = np.concatenate(x_train_list, axis=0)
-        x_test = np.concatenate(x_test_list, axis=0)
-        y_train = np.concatenate(y_train_list, axis=0)
-        y_test = np.concatenate(y_test_list, axis=0)
-
-    def data_prepare(self):
-        self.data_mat()
+    def prepare_data(self):
+        """Pipeline to execute all preprocessing steps."""
+        self.load_mat_data()
         self.downsampling()
-        self.bandpass()
-        self.data_div()
+        self.bandpass_filter()
+        self.segment_and_select_classes()
         return self.seg_f_div, self.label_div
 
+# --- Main Execution Block ---
 
-
-#create eeg pickle files
 if __name__ == "__main__":
-    for sub in range(1,43):
-        print(sub)
-        file_path = "C:/Users/minho.lee/Dropbox/Datasets/EAV/Input_images/EEG/"
-        file_name = f"subject_{sub:02d}_eeg.pkl"
-        file_ = os.path.join(file_path, file_name)
-        eeg_loader = DataLoadEEG(subject=sub, band=[0.5, 45], fs_orig=500, fs_target=100,
-                                 parent_directory='C://Users//minho.lee//Dropbox//Datasets//EAV')
-        data_eeg, data_eeg_y = eeg_loader.data_prepare()
+    # Settings
+    SUBJECT_RANGE = range(1, 43)
+    DATA_ROOT = r'C:\Users\minho.lee\Dropbox\Datasets\EAV'
+    OUTPUT_DIR = os.path.join(DATA_ROOT, 'Input_images', 'EEG')
 
+    # Ensure output directory exists
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    for sub in SUBJECT_RANGE:
+        print(f"\nProcessing Subject {sub}...")
+
+        # 1. Load and Preprocess Data
+        eeg_loader = DataLoadEEG(subject=sub, band=[0.5, 45],
+                                 fs_orig=500, fs_target=100,
+                                 parent_directory=DATA_ROOT)
+
+        data_eeg, data_eeg_y = eeg_loader.prepare_data()
+
+        if data_eeg is None:
+            continue
+
+        # 2. Split Data (Train/Test)
         division_eeg = EAVDataSplit(data_eeg, data_eeg_y)
-        [tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg] = division_eeg.get_split(h_idx=56)
-        EEG_list = [tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg]
+        # Assuming h_idx determines the split ratio or holdout
+        tr_x, tr_y, te_x, te_y = division_eeg.get_split(h_idx=56)
 
-        ''' 
-        # Here you can write / load vision features tr:{280}(30, 500), te:{120}(30, 500)
-        import pickle
-        with open(file_, 'wb') as f:
-            pickle.dump(EEG_list, f)
-        
-        # You can directly work from here
-        with open(file_, 'rb') as f:
-            eeg_list = pickle.load(f)
-        tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg = eeg_list
-        data = [tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg]
-        '''
-        data = [tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg]
+        dataset = [tr_x, tr_y, te_x, te_y]
 
-        # Transformer for EEG
-        from Transformer_torch import Transformer_EEG
-        model = Transformer_EEG.EEGClassificationModel(eeg_channel=30)
-        trainer = Transformer_EEG.EEGModelTrainer(data, model = model, lr=0.001, batch_size = 64)
-        trainer.train(epochs=100, lr=None, freeze=False)
+        # Optional: Save processed data to pickle
+        # pickle_path = os.path.join(OUTPUT_DIR, f"subject_{sub:02d}_eeg.pkl")
+        # with open(pickle_path, 'wb') as f:
+        #     pickle.dump(dataset, f)
 
-        [accuracy, predictions] = trainer.evaluate()
+        # ---------------------------------------------------------
+        # MODEL 1: PyTorch Transformer (Custom Implementation)
+        # ---------------------------------------------------------
+        # from Transformer_torch import Transformer_EEG
+        # print("Training Transformer (PyTorch)...")
+        # model_trans = Transformer_EEG.EEGClassificationModel(eeg_channel=30)
+        # trainer_trans = Transformer_EEG.EEGModelTrainer(dataset, model=model_trans, lr=0.001, batch_size=64)
+        # trainer_trans.train(epochs=100, lr=None, freeze=False)
+        # acc_trans, preds_trans = trainer_trans.evaluate()
+        # print(f"Transformer Accuracy: {acc_trans}")
 
-        # CNN_tensorflow for EEG
-        from CNN_tensorflow.CNN_EEG_tf import EEGNet
-        from sklearn.metrics import accuracy_score, confusion_matrix
+        # ---------------------------------------------------------
+        # MODEL 2: TensorFlow CNN (EEGNet)
+        # ---------------------------------------------------------
+        # from CNN_tensorflow.CNN_EEG_tf import EEGNet
+        # import tensorflow as tf
 
-        model = EEGNet(nb_classes=5, D=8, F2=64, Chans=30, kernLength=300, Samples=500,
-                       dropoutRate=0.5)
-        model.compile(loss='categorical_crossentropy', optimizer='adam',
-                      metrics=['accuracy'])
-        y_train = np.zeros((tr_y_eeg.shape[0], 5))
-        y_train[np.arange(tr_y_eeg.shape[0]), tr_y_eeg.flatten()] = 1
-        y_test = np.zeros((te_y_eeg.shape[0], 5))
-        y_test[np.arange(te_y_eeg.shape[0]), te_y_eeg.flatten()] = 1
-        x_train = np.reshape(tr_x_eeg, (280, 30, 500, 1))
-        x_test = np.reshape(te_x_eeg, (120, 30, 500, 1))
-        model.fit(x_train, y_train, batch_size=32, epochs=200, shuffle=True, validation_data=(x_test, y_test))
+        # print("Training EEGNet (TensorFlow)...")
+        # # Prepare One-Hot Encoding
+        # num_classes = 5
+        # y_train_oh = np.eye(num_classes)[tr_y.flatten()]
+        # y_test_oh = np.eye(num_classes)[te_y.flatten()]
 
-        pred = model.predict(x_test)
-        pred = np.argmax(pred, axis=1)
+        # # Add channel dimension (N, Ch, T, 1)
+        # x_train_tf = tr_x[..., np.newaxis]
+        # x_test_tf = te_x[..., np.newaxis]
 
-        y_test2 = np.argmax(y_test, axis=1)
-        cm = confusion_matrix(pred, y_test2)
-        accuracy = accuracy_score(pred, y_test2)
+        # model_tf = EEGNet(nb_classes=num_classes, D=8, F2=64, Chans=30,
+        #                   kernLength=300, Samples=500, dropoutRate=0.5)
 
-        # CNN_pytorch for EEG, fix the error, and make the accuracy same
-        from CNN_torch.EEGNet_tor import EEGNet_tor, Trainer_uni
-        import torch.nn as nn
+        # model_tf.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+        # model_tf.fit(x_train_tf, y_train_oh, batch_size=32, epochs=200,
+        #              shuffle=True, validation_data=(x_test_tf, y_test_oh), verbose=0)
 
-        model = EEGNet_tor(nb_classes=5, D=8, F2=64, Chans=30, kernLength=300, Samples=500,
-                           dropoutRate=0.5)
-        trainer = Trainer_uni(model=model, data=data, lr=1e-5, batch_size=32, num_epochs=200)
-        trainer.train()
-        model.eval()
+        # pred_probs = model_tf.predict(x_test_tf)
+        # pred_labels = np.argmax(pred_probs, axis=1)
+        # true_labels = np.argmax(y_test_oh, axis=1)
 
-        criterion = nn.CrossEntropyLoss()
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        te_x_eeg = torch.tensor(te_x_eeg, dtype=torch.float32).to(device)
-        te_y_eeg = torch.tensor(te_y_eeg, dtype=torch.long).to(device)
-        model.to(device)
+        # acc_tf = accuracy_score(true_labels, pred_labels)
+        # print(f"TF EEGNet Accuracy: {acc_tf}")
 
-        with torch.no_grad():
-            scores = model(te_x_eeg)
-            predictions = scores.argmax(dim=1)
-            correct = (predictions == te_y_eeg).sum().item()
-            total = te_y_eeg.size(0)
-            accuracy = correct / total
-        print(accuracy)
+        # ---------------------------------------------------------
+        # MODEL 3: PyTorch CNN (EEGNet)
+        # ---------------------------------------------------------
+        try:
+            import torch
+            import torch.nn as nn
+            from CNN_torch.EEGNet_tor import EEGNet_tor, Trainer_uni
 
+            print("Training EEGNet (PyTorch)...")
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+            model_torch = EEGNet_tor(nb_classes=5, D=8, F2=64, Chans=30,
+                                     kernLength=300, Samples=500, dropoutRate=0.5)
 
+            # Custom trainer class usage
+            trainer_torch = Trainer_uni(model=model_torch, data=dataset,
+                                        lr=1e-5, batch_size=32, num_epochs=200)
+            trainer_torch.train()
 
-''' Direct evaluation
-if __name__ == "__main__":
-    eeg_loader = DataLoadEEG(subject=1, band=[0.5, 45], fs_orig=500, fs_target=100,
-                             parent_directory='C://Users//minho.lee//Dropbox//Datasets//EAV')
-    data_eeg, data_eeg_y = eeg_loader.data_prepare()
+            # Evaluation
+            model_torch.eval()
+            te_x_tensor = torch.tensor(te_x, dtype=torch.float32).to(device)
+            te_y_tensor = torch.tensor(te_y, dtype=torch.long).to(device)
+            model_torch.to(device)
 
-    division_eeg = EAVDataSplit(data_eeg, data_eeg_y)
-    [tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg] = division_eeg.get_split()
-    data = [tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg]
+            with torch.no_grad():
+                scores = model_torch(te_x_tensor)
+                predictions = scores.argmax(dim=1)
+                correct = (predictions == te_y_tensor).sum().item()
+                acc_torch = correct / te_y_tensor.size(0)
 
-    trainer = Transformer_EEG.EEGModelTrainer(data, lr=0.001, batch_size = 64)
-    trainer.train(epochs=200, lr=None, freeze=False)
-'''
-'''
-from Transformer_EEG import EEGClassificationModel
-accuracy_all = list()
-prediction_all = list()
-if __name__ == "__main__": # from pickle data
-    import pickle
-    for sub in range(1, 43):
-        file_path = "C:/Users/minho.lee/Dropbox/Datasets/EAV/Input_images/EEG/"
-        file_name = f"subject_{sub:02d}_eeg.pkl"
-        file_ = os.path.join(file_path, file_name)
+            print(f"PyTorch EEGNet Accuracy: {acc_torch:.4f}")
 
-        with open(file_, 'rb') as f:
-            eeg_list2 = pickle.load(f)
-        tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg = eeg_list2
-        data = [tr_x_eeg, tr_y_eeg, te_x_eeg, te_y_eeg]
-
-        model = EEGClassificationModel(eeg_channel=30)
-        trainer = Transformer_EEG.EEGModelTrainer(data, model = model, lr=0.001, batch_size = 64)
-        trainer.train(epochs=100, lr=None, freeze=False)
-
-        [accuracy, predictions] = trainer.evaluate()
-        accuracy_all.append(accuracy)
-        prediction_all.append(predictions)
-'''
-
+        except ImportError as e:
+            print(f"Skipping PyTorch training: {e}")
+        except Exception as e:
+            print(f"Error during PyTorch training: {e}")
